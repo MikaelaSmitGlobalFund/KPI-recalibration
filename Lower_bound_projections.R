@@ -50,7 +50,7 @@ if (computer ==1){
 # Load the pip data 
 df_hiv2     = read.csv("df_data_hiv.csv", stringsAsFactors = FALSE)
 df_malaria2 = read.csv("df_data_malaria.csv", stringsAsFactors = FALSE)
-df_tb2      =  read.csv("df_data_tb.csv", stringsAsFactors = FALSE)
+df_tb2      =  read.csv("df_data_tb_7Oct.csv", stringsAsFactors = FALSE)
 
 # Load list of countries
 df_iso_hiv     = read.csv("List of countries/hiv_iso.csv", stringsAsFactors = FALSE)
@@ -59,7 +59,7 @@ df_iso_malaria = read.csv("List of countries/malaria_iso_v2.csv", stringsAsFacto
 
 # List of indicators
 list_indc_hiv_pip     = c("country", "year", "cases_central", "deaths_central", "incidence_central", "mortality_central", "hivneg_central", 'plhiv_central', "population_central")
-list_indc_tb_pip      = c("country", "year", "cases_central", "deaths_central", "incidence_central", "mortality_central", "population_central")
+list_indc_tb_pip      = c("country", "year", "cases_central", "deathshivneg_central", "incidence_central", "mortality_central", "population_central")
 list_indc_malaria_pip = c("country", "year", "cases_central", "deaths_central", "incidence_central", "mortality_central", "par_central")  
 list_ind              = c("country", "year", "incidence_central", "mortality_central")
 
@@ -245,3 +245,108 @@ for (c in unique(malaria_proj$country)) {
   print(plot_country(c, malaria_proj, start_year, end_year))
 }
 dev.off()
+
+
+# ===== Aggregation of indicators =====
+# Make a disease-level, multi-country annual series (cases/deaths + denom)
+build_agg_hiv <- function(df_hiv2, start_year, end_year_data) {
+  df_hiv2 %>%
+    dplyr::filter(year >= start_year, year <= end_year_data) %>%
+    dplyr::group_by(year) %>%
+    dplyr::summarise(
+      cases = sum(cases_central, na.rm = TRUE),
+      deaths = sum(deaths_central, na.rm = TRUE),
+      hivneg = sum(hivneg_central, na.rm = TRUE),
+      pop    = sum(population_central, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    dplyr::transmute(
+      year,
+      incidence = ifelse(hivneg > 0, cases / hivneg, NA_real_),
+      mortality = ifelse(pop    > 0, deaths / pop,    NA_real_)
+    )
+}
+
+build_agg_tb <- function(df_tb2, start_year, end_year_data) {
+  df_tb2 %>%
+    dplyr::filter(year >= start_year, year <= end_year_data) %>%
+    dplyr::group_by(year) %>%
+    dplyr::summarise(
+      cases = sum(cases_central, na.rm = TRUE),
+      deaths = sum(deathshivneg_central, na.rm = TRUE),
+      pop    = sum(population_central, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    dplyr::transmute(
+      year,
+      incidence = ifelse(pop > 0, cases / pop, NA_real_),
+      mortality = ifelse(pop > 0, deaths / pop, NA_real_)
+    )
+}
+
+build_agg_malaria <- function(df_malaria2, start_year, end_year_data) {
+  df_malaria2 %>%
+    dplyr::filter(year >= start_year, year <= end_year_data) %>%
+    dplyr::group_by(year) %>%
+    dplyr::summarise(
+      cases = sum(cases_central, na.rm = TRUE),
+      deaths = sum(deaths_central, na.rm = TRUE),
+      par    = sum(par_central,   na.rm = TRUE),   # population at risk
+      .groups = "drop"
+    ) %>%
+    dplyr::transmute(
+      year,
+      incidence = ifelse(par > 0, cases / par,    NA_real_),
+      mortality = ifelse(par > 0, deaths / par,   NA_real_)
+    )
+}
+
+
+# ===== Aggregate series per disease =====
+hiv_agg <- build_agg_hiv(df_hiv2, start_year, end_year_data) %>%
+  tidyr::pivot_longer(c(incidence, mortality), names_to = "metric", values_to = "value") %>%
+  apply_scaling("hiv", scaling_table)
+
+tb_agg <- build_agg_tb(df_tb2, start_year, end_year_data) %>%
+  tidyr::pivot_longer(c(incidence, mortality), names_to = "metric", values_to = "value") %>%
+  apply_scaling("tb", scaling_table)
+
+malaria_agg <- build_agg_malaria(df_malaria2, start_year, end_year_data) %>%
+  tidyr::pivot_longer(c(incidence, mortality), names_to = "metric", values_to = "value") %>%
+  apply_scaling("malaria", scaling_table)
+
+
+# ===== Fit a single projection (no country grouping) =====
+project_agg <- function(df_long, disease_name,
+                        covid_years, post_covid_year, end_year) {
+  df_long %>%
+    dplyr::mutate(country = disease_name) %>%  # dummy so we can reuse fit_projection grouping
+    dplyr::group_by(country, metric, scale_label) %>%
+    dplyr::group_modify(~ fit_projection(.x,
+                                         covid_years = covid_years,
+                                         post_covid_year = post_covid_year,
+                                         end_year = end_year)) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(disease = disease_name)
+}
+
+hiv_agg_proj     <- project_agg(hiv_agg,     "hiv",     covid_years, post_covid_year, end_year)
+tb_agg_proj      <- project_agg(tb_agg,      "tb",      covid_years, post_covid_year, end_year)
+malaria_agg_proj <- project_agg(malaria_agg, "malaria", covid_years, post_covid_year, end_year)
+
+# Example: HIV aggregated series (incidence & mortality)
+ggplot(hiv_agg_proj, aes(year, projection)) +
+  geom_line() +
+  geom_point(aes(y = observed), size = 1) +
+  facet_wrap(~ metric, scales = "free_y") +
+  labs(title = "HIV (aggregated across countries): projections",
+       x = "Year", y = unique(hiv_agg_proj$scale_label)) +
+  scale_x_continuous(breaks = seq(start_year, end_year, by = 1)) +
+  theme_minimal()
+
+readr::write_csv(hiv_agg_proj,     file.path(output_path, "hiv_aggregated_projection.csv"))
+readr::write_csv(tb_agg_proj,      file.path(output_path, "tb_aggregated_projection.csv"))
+readr::write_csv(malaria_agg_proj, file.path(output_path, "malaria_aggregated_projection.csv"))
+
+
+
