@@ -16,7 +16,7 @@ computer   = 1                            # 1 = Mikaela # Add additional compute
 
 # ---- Switchboard for “recent trends” ----
 # Decision rule for including 2024 in slope
-include_2024_if_within_log_ratio <- 0.10  # ≈ ±10% of pre-COVID trend line at 2024
+include_2024_if_within_log_ratio <- 0.10  # ≈ ±10% of pre-COVID trend line at 2024, set to 0 to never include, set to 1 to always include
 
 # Guard-rail behavior:
 # if trend over the window suggests increase, use linear; if decline, use exponential
