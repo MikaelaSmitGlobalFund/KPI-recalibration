@@ -65,8 +65,8 @@ df_hiv2 <- df_hiv2 %>%
     indicator_std = case_when(
       pip_code == "HIV1"        ~ "hiv_cases_n_pip",
       pip_code == "HIV121"      ~ "hiv_deaths_n_pip",
-      pip_code == "Population2" ~ "population_n_pip",
-      pip_code == "HIV46"       ~ "hivpos_n_pip",
+      pip_code == "POPULATION2" ~ "Population_n_pip",
+      pip_code == "HIV46"       ~ "HIVpos_n_pip",
       
       pip_code == "HIV163"      ~ "art_n_pip",
       pip_code == "HIV168"      ~ "art_p_pip",
