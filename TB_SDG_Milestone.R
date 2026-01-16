@@ -159,10 +159,11 @@ tb_base <- tb_full %>%
   filter(year == sdg_base_year) %>%
   transmute(
     iso3,
-    incidence_2015           = cases / pop,
-    mortality_all_2015       = deaths_all / pop,
-    mortality_hivneg_2015    = deaths_hivneg / pop
+    incidence_2015 = cases / pop,      # rate baseline
+    deaths_all_2015 = deaths_all,      # count baseline
+    deaths_hivneg_2015 = deaths_hivneg # count baseline
   )
+
 
 # -----------------------------
 # 2) Join milestones + compute SDG target cases/deaths (2015–2030)
@@ -172,29 +173,26 @@ tb_targets <- tb_full %>%
   left_join(tb_base, by = "iso3") %>%
   left_join(tb_milestones, by = "year") %>%
   mutate(
-    # apply reductions to baseline rates
-    sdg_incidence_rate         = incidence_2015        * (1 - inc_reduction),
-    sdg_mortality_all_rate     = mortality_all_2015    * (1 - death_reduction),
-    sdg_mortality_hivneg_rate  = mortality_hivneg_2015 * (1 - death_reduction),
+    # Apply incidence reduction to incidence RATE
+    sdg_incidence_rate = incidence_2015 * (1 - inc_reduction),
+    sdg_cases = sdg_incidence_rate * pop,
     
-    # convert rates back to counts using POP
-    sdg_cases           = sdg_incidence_rate        * pop,
-    sdg_deaths_all      = sdg_mortality_all_rate    * pop,
-    sdg_deaths_hivneg   = sdg_mortality_hivneg_rate * pop
+    # Apply death reduction to DEATH COUNTS (not rates)
+    sdg_deaths_all    = deaths_all_2015    * (1 - death_reduction),
+    sdg_deaths_hivneg = deaths_hivneg_2015 * (1 - death_reduction),
+    
+    # (Optional) derive mortality rates from the target death counts
+    sdg_mortality_all_rate    = sdg_deaths_all    / pop,
+    sdg_mortality_hivneg_rate = sdg_deaths_hivneg / pop
   ) %>%
   select(
     iso3, year,
-    sdg_incidence_rate,
-    sdg_mortality_all_rate,
-    sdg_mortality_hivneg_rate,
-    sdg_cases,
-    sdg_deaths_all,
-    sdg_deaths_hivneg
+    sdg_incidence_rate, sdg_cases,
+    sdg_deaths_all, sdg_deaths_hivneg,
+    sdg_mortality_all_rate, sdg_mortality_hivneg_rate
   ) %>%
   filter(
     !is.na(sdg_incidence_rate),
-    !is.na(sdg_mortality_all_rate),
-    !is.na(sdg_mortality_hivneg_rate),
     !is.na(sdg_cases),
     !is.na(sdg_deaths_all),
     !is.na(sdg_deaths_hivneg)
