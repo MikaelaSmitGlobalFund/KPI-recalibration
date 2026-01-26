@@ -4,6 +4,10 @@
 # SCRIPT DISCRIPTION: 
 # This code will generate the data for KPI reporting at country-level
 # Central switchboard gives you option of choosing which diseases to run
+# That is 1. baseline data on cases/deaths and incidence/mortality; 
+# 2. share to gap to SDG based on projections of cases/deaths based on 
+# continuation of recent trends (pre-COVID only, still old code) and 
+# 3. variation in rate between 2021 baseline and this year
 
 # NOTE: 
 # The script generates the country level KPI data and the data for the Allocation Team on 

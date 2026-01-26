@@ -3,6 +3,12 @@
 # First Version: 27 Jan, by Mikaela Smit
 # ================================================
 
+# This code is aimed at testing a new approach for projecting continuation of recent trends
+# which now accounts for post-COVID data. It produced data and graphs at country level and 
+# portfolio level but projections are based rates (not eg cases and population) first at 
+# country-level and then portfolio level rates are created by summing cross countries and these 
+# portfolio level rates are projected. 
+
 rm(list = ls())
 
 #######################
