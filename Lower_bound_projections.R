@@ -36,8 +36,8 @@ end_year         <- 2028       # projection horizon
 # Multipliers turn raw rated into rates “per X population”.
 scaling_table <- tibble::tibble(
   disease = c("hiv", "tb", "malaria"),
-  incidence_multiplier = c(1000, 100000, 1000),    # per 1,000 or 100,000
-  mortality_multiplier = c(1000, 100000, 100000)   # per 1,000 or 100,000
+  incidence_multiplier = c(1, 1, 1),    # per 1,000 or 100,000
+  mortality_multiplier = c(1, 1, 1)   # per 1,000 or 100,000
 )
 
 
@@ -62,39 +62,66 @@ if (computer ==1){
 }
 
 # Load the pip data 
-df_hiv2     = read.csv("df_data_hiv.csv", stringsAsFactors = FALSE)
-df_malaria2 = read.csv("df_data_malaria.csv", stringsAsFactors = FALSE)
-df_tb2      =  read.csv("df_data_tb_7Oct.csv", stringsAsFactors = FALSE)
+df_hiv2     = read.csv("df_partner_hiv_8Jan.csv", stringsAsFactors = FALSE)
+df_malaria2 = read.csv("df_partner_malaria_5Jan2025.csv", stringsAsFactors = FALSE)
+df_tb2      =  read.csv("df_partner_tb_8Jan.csv", stringsAsFactors = FALSE)
 
 # Load list of countries
 df_iso_hiv     = read.csv("List of countries/hiv_iso.csv", stringsAsFactors = FALSE)
 df_iso_tb      = read.csv("List of countries/tb_iso_v2.csv", stringsAsFactors = FALSE)
 df_iso_malaria = read.csv("List of countries/malaria_iso_v2.csv", stringsAsFactors = FALSE)
+df_iso_malaria_portfolio = read.csv("List of countries/malaria_iso_SSA.csv", stringsAsFactors = FALSE)
 
 # List of indicators
-list_indc_hiv_pip     = c("country", "year", "cases_central", "deaths_central", "incidence_central", "mortality_central", "hivneg_central", 'plhiv_central', "population_central")
-list_indc_tb_pip      = c("country", "year", "cases_central", "deathshivneg_central", "incidence_central", "mortality_central", "population_central")
-list_indc_malaria_pip = c("country", "year", "cases_central", "deaths_central", "incidence_central", "mortality_central", "par_central")  
-list_ind              = c("country", "year", "incidence_central", "mortality_central")
+list_indc_hiv_pip     = c("ISO3", "Year", "hiv_cases_n_pip", "hiv_deaths_n_pip", "HIVpos_n_pip", 'Population_n_pip', "HIVneg")
+list_indc_tb_pip      = c("ISO3", "Year", "tb_cases_n_pip", "tb_deathsnohiv_n_pip", "tb_pop_n_pip")
+list_indc_malaria_pip = c("ISO3", "Year", "malaria_cases_n_pip", "malaria_deaths_n_pip", "malaria_par_n_pip")  
+list_ind              = c("ISO3", "Year", "incidence", "mortality")
 
 # ========== CLEAN DATA ==========
 # Filter out countries we do not need: 
-df_hiv2        = filter(df_hiv2, country %in% df_iso_hiv$ISO3)             # by eligible countries
-df_tb2         = filter(df_tb2, country %in% df_iso_tb$ISO3)               # by eligible countries
-df_malaria2    = filter(df_malaria2, country %in% df_iso_malaria$ISO3)     # by eligible countries
+df_hiv2        = filter(df_hiv2, ISO3 %in% df_iso_hiv$ISO3)             # by eligible countries
+df_tb2         = filter(df_tb2, ISO3 %in% df_iso_tb$ISO3)               # by eligible countries
+df_malaria2    = filter(df_malaria2, ISO3 %in% df_iso_malaria$ISO3)     # by eligible countries
+df_malaria2_portfolio    = filter(df_malaria2, ISO3 %in% df_iso_malaria_portfolio$ISO3)     # by eligible countries which is SSA only
+
+# Add HIVneg for hiv
+df_hiv2 <- df_hiv2 %>%
+  arrange(ISO3, Year) %>%
+  group_by(ISO3) %>%
+  mutate(HIVneg = Population_n_pip - lag(HIVpos_n_pip)) %>%
+  ungroup()
 
 # Filter out indicators we do not need: 
 df_hiv     = subset(df_hiv2, select = names(df_hiv2) %in% list_indc_hiv_pip)
 df_tb      = subset(df_tb2, select = names(df_tb2) %in% list_indc_tb_pip)
 df_malaria = subset(df_malaria2, select = names(df_malaria2) %in% list_indc_malaria_pip)
 
-# Make incidence and mortality
+
+# Compute incidence and mortality
+df_hiv = df_hiv %>%
+  mutate(
+    incidence = hiv_cases_n_pip / HIVneg,
+    mortality = hiv_deaths_n_pip / Population_n_pip,
+  )
+
+df_tb = df_tb %>%
+  mutate(
+    incidence = tb_cases_n_pip / tb_pop_n_pip,
+    mortality = tb_deathsnohiv_n_pip / tb_pop_n_pip,
+  )
+
+df_malaria = df_malaria %>%
+  mutate(
+    incidence = malaria_cases_n_pip / malaria_par_n_pip,
+    mortality = malaria_deaths_n_pip / malaria_par_n_pip,
+  )
 
 
 # Restrict years and drop extras variables
-df_hiv     <- df_hiv     %>% filter(year >= first_year_trend, year <= end_year_data) %>% select(any_of(list_ind))
-df_tb      <- df_tb      %>% filter(year >= first_year_trend, year <= end_year_data) %>% select(any_of(list_ind))
-df_malaria <- df_malaria %>% filter(year >= first_year_trend, year <= end_year_data) %>% select(any_of(list_ind))
+df_hiv     <- df_hiv     %>% filter(Year >= first_year_trend, Year <= end_year_data) %>% select(any_of(list_ind))
+df_tb      <- df_tb      %>% filter(Year >= first_year_trend, Year <= end_year_data) %>% select(any_of(list_ind))
+df_malaria <- df_malaria %>% filter(Year >= first_year_trend, Year <= end_year_data) %>% select(any_of(list_ind))
 
 
 
@@ -121,22 +148,25 @@ apply_scaling <- function(df, disease_name, scaling_table) {
 
 # Long format + scaling (for lower-bound engine)
 df_hiv_long <- df_hiv %>%
-  tidyr::pivot_longer(c(incidence_central, mortality_central),
+  tidyr::pivot_longer(c(incidence, mortality),
                       names_to = "metric", values_to = "value") %>%
-  dplyr::mutate(metric = ifelse(metric == "incidence_central", "incidence", "mortality")) %>%
-  apply_scaling("hiv", scaling_table)
+  dplyr::mutate(metric = ifelse(metric == "incidence", "incidence", "mortality")) 
+
+df_hiv_long <- apply_scaling(df_hiv_long, "hiv", scaling_table)
 
 df_tb_long <- df_tb %>%
-  tidyr::pivot_longer(c(incidence_central, mortality_central),
+  tidyr::pivot_longer(c(incidence, mortality),
                       names_to = "metric", values_to = "value") %>%
-  dplyr::mutate(metric = ifelse(metric == "incidence_central", "incidence", "mortality")) %>%
-  apply_scaling("tb", scaling_table)
+  dplyr::mutate(metric = ifelse(metric == "incidence", "incidence", "mortality")) 
+
+df_tb_long <- apply_scaling(df_tb_long, "tb", scaling_table)
 
 df_malaria_long <- df_malaria %>%
-  tidyr::pivot_longer(c(incidence_central, mortality_central),
+  tidyr::pivot_longer(c(incidence, mortality),
                       names_to = "metric", values_to = "value") %>%
-  dplyr::mutate(metric = ifelse(metric == "incidence_central", "incidence", "mortality")) %>%
-  apply_scaling("malaria", scaling_table)
+  dplyr::mutate(metric = ifelse(metric == "incidence", "incidence", "mortality"))
+
+df_malaria_long <- apply_scaling(df_malaria_long, "malaria", scaling_table)
 
 
 # ===================== LOWER-BOUND HELPERS (recent trends) =====================
@@ -146,12 +176,12 @@ choose_slope_years <- function(df, first_year_trend, end_year_trend, anchor_year
                                threshold_log_ratio = 0.10) {
   # df must have: year, value_scaled (already scaled per disease/metric)
   trend_years <- seq(first_year_trend, end_year_trend)
-  d_pre <- df %>% dplyr::filter(year %in% trend_years, is.finite(value_scaled))
+  d_pre <- df %>% dplyr::filter(Year %in% trend_years, is.finite(value_scaled))
   if (nrow(d_pre) < 3) return(trend_years)
   
-  fit_pre <- lm(log(value_scaled) ~ year, data = d_pre)
-  pred_anchor <- exp(predict(fit_pre, newdata = data.frame(year = anchor_year)))
-  y_anchor    <- df$value_scaled[df$year == anchor_year][1]
+  fit_pre <- lm(log(value_scaled) ~ Year, data = d_pre)
+  pred_anchor <- exp(predict(fit_pre, newdata = data.frame(Year = anchor_year)))
+  y_anchor    <- df$value_scaled[df$Year == anchor_year][1]
   
   if (!is.finite(y_anchor) || !is.finite(pred_anchor)) return(trend_years)
   
@@ -166,20 +196,20 @@ choose_slope_years <- function(df, first_year_trend, end_year_trend, anchor_year
 # Project from the anchor using exponential decline (if beta<0) or linear increase (if beta>0)
 project_recent_trend <- function(df, slope_years, anchor_year, end_year,
                                  guard_linear_if_increasing = TRUE) {
-  d_slope <- df %>% dplyr::filter(year %in% slope_years, is.finite(value_scaled))
+  d_slope <- df %>% dplyr::filter(Year %in% slope_years, is.finite(value_scaled))
   if (nrow(d_slope) < 2) return(NULL)
   
-  fit_log <- lm(log(value_scaled) ~ year, data = d_slope)
-  beta <- coef(fit_log)["year"]; if (is.na(beta)) beta <- 0
+  fit_log <- lm(log(value_scaled) ~ Year, data = d_slope)
+  beta <- coef(fit_log)["Year"]; if (is.na(beta)) beta <- 0
   
-  y_anchor <- df %>% dplyr::filter(year == anchor_year) %>% dplyr::pull(value_scaled) %>% .[1]
+  y_anchor <- df %>% dplyr::filter(Year == anchor_year) %>% dplyr::pull(value_scaled) %>% .[1]
   if (!is.finite(y_anchor)) return(NULL)
   
   use_linear <- guard_linear_if_increasing && (beta > 0)
   
   pred_fun <- if (use_linear) {
-    fit_lin <- lm(value_scaled ~ year, data = d_slope)
-    slope_lin <- coef(fit_lin)["year"]; if (is.na(slope_lin)) slope_lin <- 0
+    fit_lin <- lm(value_scaled ~ Year, data = d_slope)
+    slope_lin <- coef(fit_lin)["Year"]; if (is.na(slope_lin)) slope_lin <- 0
     function(yrs) y_anchor + slope_lin * (yrs - anchor_year)
   } else {
     function(yrs) y_anchor * exp(beta * (yrs - anchor_year))
@@ -187,13 +217,12 @@ project_recent_trend <- function(df, slope_years, anchor_year, end_year,
   
   future_years <- seq(anchor_year + 1, end_year)
   tibble::tibble(
-    year       = c(df$year[df$year <= anchor_year], future_years),
-    observed   = c(df$value_scaled[df$year <= anchor_year], rep(NA_real_, length(future_years))),
-    projection = c(df$value_scaled[df$year <= anchor_year], pred_fun(future_years))
+    Year       = c(df$Year[df$Year <= anchor_year], future_years),
+    observed   = c(df$value_scaled[df$Year <= anchor_year], rep(NA_real_, length(future_years))),
+    projection = c(df$value_scaled[df$Year <= anchor_year], pred_fun(future_years))
   )
 }
 
-# Country-level lower bound (expects *long* data with value_scaled)
 # Country-level lower bound (expects *long* data with value_scaled)
 run_lower_bound_country <- function(df_long,
                                     first_year_trend, end_year_trend,
@@ -202,10 +231,10 @@ run_lower_bound_country <- function(df_long,
                                     guard_linear_if_increasing = TRUE) {
   
   df_long %>%
-    dplyr::group_by(country, metric, scale_label) %>%
+    dplyr::group_by(ISO3, metric, scale_label) %>%
     dplyr::group_modify(~{
       d <- .x %>%
-        dplyr::arrange(year) %>%
+        dplyr::arrange(Year) %>%
         dplyr::mutate(
           value_scaled = pmax(value_scaled, .eps),
           value_scaled = ifelse(is.finite(value_scaled), value_scaled, NA_real_)
@@ -214,7 +243,7 @@ run_lower_bound_country <- function(df_long,
       
       # skip if too few valid points
       if (nrow(d) < 3) {
-        message("Skipping ", unique(d$country), " / ", unique(d$metric),
+        message("Skipping ", unique(d$ISO3), " / ", unique(d$metric),
                 " (insufficient valid data)")
         return(tibble::tibble())
       }
@@ -271,7 +300,7 @@ malaria_lb_country <- run_lower_bound_country(df_malaria_long,
 
 # ---- Helper function to plot one country's incidence + mortality ----
 plot_country <- function(country_code, data, first_year_data, end_year) {
-  df_c <- data %>% dplyr::filter(country == country_code)
+  df_c <- data %>% dplyr::filter(ISO3 == country_code)
   
   if (nrow(df_c) == 0) {
     message("No data for ", country_code)
@@ -283,7 +312,7 @@ plot_country <- function(country_code, data, first_year_data, end_year) {
     df_panel <- df_c %>% dplyr::filter(metric == d_metric)
     if (nrow(df_panel) == 0) return(NULL)
     
-    ggplot(df_panel, aes(x = year, y = projection)) +
+    ggplot(df_panel, aes(x = Year, y = projection)) +
       geom_line(color = line_col, linewidth = 1) +
       geom_point(aes(y = observed), color = "black", size = 1.5) +
       labs(
@@ -315,19 +344,19 @@ plot_country <- function(country_code, data, first_year_data, end_year) {
 
 # ---- Export PDFs (country-level) ----
 pdf(file.path(output_path, "HIV_LB_projections_by_country.pdf"), width = 12, height = 6)
-for (c in unique(hiv_lb_country$country)) {
+for (c in unique(hiv_lb_country$ISO3)) {
   print(plot_country(c, hiv_lb_country, first_year_trend, end_year))
 }
 dev.off()
 
 pdf(file.path(output_path, "TB_LB_projections_by_country.pdf"), width = 12, height = 6)
-for (c in unique(tb_lb_country$country)) {
+for (c in unique(tb_lb_country$ISO3)) {
   print(plot_country(c, tb_lb_country, first_year_trend, end_year))
 }
 dev.off()
 
 pdf(file.path(output_path, "Malaria_LB_projections_by_country.pdf"), width = 12, height = 6)
-for (c in unique(malaria_lb_country$country)) {
+for (c in unique(malaria_lb_country$ISO3)) {
   print(plot_country(c, malaria_lb_country, first_year_trend, end_year))
 }
 dev.off()
@@ -339,55 +368,48 @@ dev.off()
 build_agg_long <- function(df_wide, disease_name, first_year_trend, end_year_data) {
   if (disease_name == "hiv") {
     agg <- df_wide %>%
-      dplyr::filter(year >= first_year_trend, year <= end_year_data) %>%
-      dplyr::group_by(year) %>%
+      dplyr::filter(Year >= first_year_trend, Year <= end_year_data) %>%
+      dplyr::group_by(Year) %>%
       dplyr::summarise(
-        cases  = sum(cases_central, na.rm = TRUE),
-        deaths = sum(deaths_central, na.rm = TRUE),
-        hivneg = sum(hivneg_central, na.rm = TRUE),
-        pop    = sum(population_central, na.rm = TRUE),
+        cases  = sum(hiv_cases_n_pip, na.rm = TRUE),
+        deaths = sum(hiv_deaths_n_pip, na.rm = TRUE),
+        hivneg = sum(HIVneg, na.rm = TRUE),
+        pop    = sum(Population_n_pip, na.rm = TRUE),
         .groups = "drop"
       ) %>%
       dplyr::transmute(
-        year,
+        Year,
         incidence = dplyr::if_else(hivneg > 0, cases / hivneg, NA_real_),
         mortality = dplyr::if_else(pop    > 0, deaths / pop,   NA_real_)
       )
   } else if (disease_name == "tb") {
-    # Handle TB datasets that may lack deaths_central
+    # Chose the TB deaths 
     agg <- df_wide %>%
-      dplyr::filter(year >= first_year_trend, year <= end_year_data) %>%
-      dplyr::group_by(year) %>%
+      dplyr::filter(Year >= first_year_trend, Year <= end_year_data) %>%
+      dplyr::group_by(Year) %>%
       dplyr::summarise(
-        cases  = sum(cases_central, na.rm = TRUE),
-        deaths = if ("deaths_central" %in% names(df_wide)) {
-          sum(deaths_central, na.rm = TRUE)
-        } else if ("deathshivneg_central" %in% names(df_wide)) {
-          sum(deathshivneg_central, na.rm = TRUE)
-        } else {
-          # reconstruct from mortality * population
-          sum(mortality_central * population_central, na.rm = TRUE)
-        },
-        pop    = sum(population_central, na.rm = TRUE),
+        cases  = sum(tb_cases_n_pip, na.rm = TRUE),
+        deaths = sum(tb_deathsnohiv_n_pip, na.rm = TRUE),
+        pop    = sum(tb_pop_n_pip, na.rm = TRUE),
         .groups = "drop"
       ) %>%
       dplyr::transmute(
-        year,
+        Year,
         incidence = dplyr::if_else(pop > 0, cases / pop, NA_real_),
         mortality = dplyr::if_else(pop > 0, deaths / pop, NA_real_)
       )
   } else if (disease_name == "malaria") {
     agg <- df_wide %>%
-      dplyr::filter(year >= first_year_trend, year <= end_year_data) %>%
-      dplyr::group_by(year) %>%
+      dplyr::filter(Year >= first_year_trend, Year <= end_year_data) %>%
+      dplyr::group_by(Year) %>%
       dplyr::summarise(
-        cases  = sum(cases_central, na.rm = TRUE),
-        deaths = sum(deaths_central, na.rm = TRUE),
-        par    = sum(par_central,   na.rm = TRUE),
+        cases  = sum(malaria_cases_n_pip, na.rm = TRUE),
+        deaths = sum(malaria_deaths_n_pip, na.rm = TRUE),
+        par    = sum(malaria_par_n_pip,   na.rm = TRUE),
         .groups = "drop"
       ) %>%
       dplyr::transmute(
-        year,
+        Year,
         incidence = dplyr::if_else(par > 0, cases / par,  NA_real_),
         mortality = dplyr::if_else(par > 0, deaths / par, NA_real_)
       )
@@ -396,9 +418,12 @@ build_agg_long <- function(df_wide, disease_name, first_year_trend, end_year_dat
   }
   
   # Long + scaling; add dummy 'country' to reuse group_modify()
-  agg %>%
-    tidyr::pivot_longer(c(incidence, mortality), names_to = "metric", values_to = "value") %>%
-    apply_scaling(disease_name, scaling_table) %>%
+  agg_long <- agg %>%
+    tidyr::pivot_longer(c(incidence, mortality), names_to = "metric", values_to = "value")
+  
+  agg_long <- apply_scaling(agg_long, disease_name, scaling_table)
+    
+    agg_long %>%
     dplyr::mutate(country = disease_name)
 }
 
@@ -415,7 +440,7 @@ run_lower_bound_portfolio <- function(df_wide, disease_name,
     dplyr::group_by(country, metric, scale_label) %>%
     dplyr::group_modify(~{
       d <- .x %>%
-        dplyr::arrange(year) %>%
+        dplyr::arrange(Year) %>%
         dplyr::mutate(
           value_scaled = pmax(value_scaled, .eps),
           value_scaled = dplyr::if_else(is.finite(value_scaled), value_scaled, NA_real_)
@@ -463,7 +488,7 @@ tb_lb_portfolio      <- run_lower_bound_portfolio(df_tb2, "tb",
                                                   anchor_year = end_year_data, end_year = end_year,
                                                   include_2024_threshold = include_2024_if_within_log_ratio,
                                                   guard_linear_if_increasing = guard_linear_if_increasing)
-malaria_lb_portfolio <- run_lower_bound_portfolio(df_malaria2, "malaria",
+malaria_lb_portfolio <- run_lower_bound_portfolio(df_malaria2_portfolio, "malaria",
                                                   first_year_trend, end_year_trend,
                                                   anchor_year = end_year_data, end_year = end_year,
                                                   include_2024_threshold = include_2024_if_within_log_ratio,
@@ -476,7 +501,7 @@ readr::write_csv(malaria_lb_portfolio, file.path(output_path, "Malaria_LB_portfo
 
 # ==== PORTFOLIO-LEVEL PLOTS ====
 plot_portfolio <- function(df, disease_name, start_year, end_year) {
-  ggplot(df, aes(x = year, y = projection)) +
+  ggplot(df, aes(x = Year, y = projection)) +
     geom_line(color = "blue", linewidth = 1.2) +
     geom_point(aes(y = observed), color = "black", size = 1.5) +
     facet_wrap(~ metric, scales = "free_y") +
@@ -522,11 +547,11 @@ make_portfolio_index <- function(df, metric_name, base_year = norm_year) {
     dplyr::filter(metric == metric_name) %>%
     # use the full "projection" series (observed through anchor, projected after)
     dplyr::group_by(disease) %>%
-    dplyr::mutate(base_val = projection[year == base_year][1]) %>%
+    dplyr::mutate(base_val = projection[Year == base_year][1]) %>%
     dplyr::ungroup() %>%
     dplyr::filter(is.finite(base_val), base_val > 0) %>%         # drop if no valid base
     dplyr::mutate(index = 100 * projection / base_val) %>%
-    dplyr::group_by(year) %>%
+    dplyr::group_by(Year) %>%
     dplyr::summarise(
       index_mean   = mean(index, na.rm = TRUE),   # simple average across diseases
       n_diseases   = sum(is.finite(index)),       # how many diseases contributed
@@ -537,51 +562,30 @@ make_portfolio_index <- function(df, metric_name, base_year = norm_year) {
 incidence_index  <- make_portfolio_index(portfolio_all, "incidence", base_year = norm_year)
 mortality_index  <- make_portfolio_index(portfolio_all, "mortality", base_year = norm_year)
 
-# 3) Plot function for the index
-plot_portfolio <- function(df, disease_name, start_year, end_year) {
-  # points only for observed years (non-NA)
-  df_obs <- df %>% dplyr::filter(!is.na(observed))
-  
-  ggplot(df, aes(x = year, y = projection)) +
-    geom_line(linewidth = 1.2) +
-    geom_point(data = df_obs, aes(y = observed), size = 1.5, na.rm = TRUE) +
-    facet_wrap(~ metric, scales = "free_y") +
-    labs(
-      title = paste0(toupper(disease_name), " - Portfolio projection to ", end_year),
-      subtitle = "Observed (points) vs projected (line); base is lower-bound method",
-      x = "Year",
-      y = df %>% dplyr::distinct(metric, scale_label) %>% dplyr::pull(scale_label) %>% unique() %>% .[1]
-    ) +
-    scale_x_continuous(breaks = seq(start_year, end_year, by = 1),
-                       limits = c(start_year, end_year)) +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
-}
 
-
-# 4) Add to your Portfolio PDF (recreate with the combined pages appended)
+# 3) Add to your Portfolio PDF (recreate with the combined pages appended)
 pdf(file.path(output_path, "Portfolio_LB_Projections.pdf"), width = 10, height = 6)
 # Existing disease pages (reprint to include everything in one file)
 print(plot_portfolio(hiv_lb_portfolio,     "HIV",     first_year_trend, end_year))
 print(plot_portfolio(tb_lb_portfolio,      "TB",      first_year_trend, end_year))
 print(plot_portfolio(malaria_lb_portfolio, "Malaria", first_year_trend, end_year))
 # New combined index pages
-print(plot_portfolio_index(incidence_index,
-                           "Combined Portfolio Incidence Index (base 2020 = 100)",
-                           first_year_trend, end_year))
-print(plot_portfolio_index(mortality_index,
-                           "Combined Portfolio Mortality Index (base 2020 = 100)",
-                           first_year_trend, end_year))
+#print(plot_portfolio_index(incidence_index,
+#                           "Combined Portfolio Incidence Index (base 2020 = 100)",
+#                           first_year_trend, end_year))
+#print(plot_portfolio_index(mortality_index,
+#                           "Combined Portfolio Mortality Index (base 2020 = 100)",
+#                           first_year_trend, end_year))
 dev.off()
 
-# 5) Export a portfolio Excel with all sheets (diseases + combined indices)
+# 4) Export a portfolio Excel with all sheets (diseases + combined indices)
 write_xlsx(
   list(
     HIV_Portfolio      = hiv_lb_portfolio,
     TB_Portfolio       = tb_lb_portfolio,
     Malaria_Portfolio  = malaria_lb_portfolio,
     Combined_Incidence_Index = incidence_index,
-    Combined_Mortality_Index = mortality_index
+    Combined_Mortality_Index = mortality_index),
   path = file.path(output_path, "Portfolio_LB_Projections.xlsx")
 )
 
