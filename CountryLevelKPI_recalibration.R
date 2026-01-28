@@ -27,7 +27,7 @@ firstrun   = 0                            # If need to install package change to
 computer   = 1                            # 1 = Mikaela # Add additional computer if needed
 
 # Set Year reference
-start_year_min     = 2014                 # This cuts off the first year and removes years were HIVneg with the lag are wrong
+start_year_min     = 2014                 # This cuts off the first year and removes years were HIVneg with the lag are wrong. Also for filtering + plotting only (not slope)
 start_year_base    = 2021                 # This year is the base year of reporting, in this case 2021
 end_year_all       = 2024                 # This is the year of latest partner data
 end_year_sdg       = 2030                 # This is the final year of prediction
@@ -42,7 +42,6 @@ start_year_gp_hiv  = 2020
 start_year_gp_tm   = 2015
 reporting_year     = 2026                # This will appear in the final csv and should be the years we are reporitng in
 
-end_year_gp_data = 2030        # Bespoke parameter for Gideon data
 
 # Install packages if necessary
 if(firstrun>0) {
@@ -701,9 +700,9 @@ df_malaria_gp = df_malaria_gp %>%
   )
 
 # Filter for 2030 in case needed
-df_hiv_gp_2030     = df_hiv_gp %>% filter(Year==end_year_gp_data)
-df_tb_gp_2030      = df_tb_gp %>% filter(Year==end_year_gp_data)
-df_malaria_gp_2030 = df_malaria_gp %>% filter(Year==end_year_gp_data)
+df_hiv_gp_2030     = df_hiv_gp %>% filter(Year==end_year_sdg)
+df_tb_gp_2030      = df_tb_gp %>% filter(Year==end_year_sdg)
+df_malaria_gp_2030 = df_malaria_gp %>% filter(Year==end_year_sdg)
 
 #Keep only data we need
 df_hiv_gp_2030     = subset(df_hiv_gp_2030, select = -c(Year, ratio_cases, ratio_deaths))
@@ -885,7 +884,7 @@ write.csv(df_kpi_I1,file="/Users/mc1405/Dropbox/The Global Fund/KPI re-calibrati
 write.csv(df_kpi_I2,file="/Users/mc1405/Dropbox/The Global Fund/KPI re-calibration/ROutput/df_kpi_I2.csv", na = "", row.names=FALSE)
 
 
-#Section 8. Combine everything by disease for 2030
+#Section 8. Combine everything by disease for 2030 for Gideon
 df_hiv_final = df_hiv_inc_final %>% left_join(df_hiv_mort_final, by='ISO3') %>% 
   left_join(df_hiv_gp_2030, by='ISO3') %>% 
   left_join(df_hiv_rate_red, by='ISO3')

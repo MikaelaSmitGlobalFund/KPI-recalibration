@@ -28,23 +28,20 @@ include_2024_if_within_log_ratio <- 0.10  # ≈ ±10% of pre-COVID trend line at
 # if trend over the window suggests increase, use linear; if decline, use exponential
 guard_linear_if_increasing <- TRUE  # keep TRUE for your “lower bound” rule
 
+# Decide which years to use to establish slope
+trend_windows <- list(
+  hiv    = list(censor = TRUE,  start = 2014, end = 2019, recent_start = 2018, recent_end = 2023),
+  tb     = list(censor = TRUE,  start = 2014, end = 2019, recent_start = 2018, recent_end = 2023),
+  malaria= list(censor = TRUE,  start = 2014, end = 2019, recent_start = 2018, recent_end = 2023)
+)
+
 covid_years      <- 2020:2023  # years treated as COVID shocks
+first_year_data  <- 2014   # for filtering + plotting only (not slope)
 norm_year        <- 2020       # year at which the rates will be normalized for the graphs
 post_covid_year  <- 2024       # first year of "post-COVID" period
-first_year_trend <- 2015       # first year of available data
-end_year_trend   <- 2019       # pre_COVID end for slope
 end_year_data    <- 2024       # last year with observed data
 end_year         <- 2028       # projection horizon
 .eps             <- 1e-9       # guard for log(0)
-
-
-# Define how each disease’s rates should be expressed.
-# Multipliers turn raw rated into rates “per X population”.
-scaling_table <- tibble::tibble(
-  disease = c("hiv", "tb", "malaria"),
-  incidence_multiplier = c(1, 1, 1),    # per 1,000 or 100,000
-  mortality_multiplier = c(1, 1, 1)   # per 1,000 or 100,000
-)
 
 
 # ========== PACKAGES ==========
@@ -86,10 +83,10 @@ list_ind              = c("ISO3", "Year", "incidence", "mortality")
 
 # ========== CLEAN DATA ==========
 # Filter out countries we do not need: 
-df_hiv2        = filter(df_hiv2, ISO3 %in% df_iso_hiv$ISO3)             # by eligible countries
-df_tb2         = filter(df_tb2, ISO3 %in% df_iso_tb$ISO3)               # by eligible countries
-df_malaria2    = filter(df_malaria2, ISO3 %in% df_iso_malaria$ISO3)     # by eligible countries
-df_malaria2_portfolio    = filter(df_malaria2, ISO3 %in% df_iso_malaria_portfolio$ISO3)     # by eligible countries which is SSA only
+df_hiv2               = filter(df_hiv2, ISO3 %in% df_iso_hiv$ISO3)             # by eligible countries
+df_tb2                = filter(df_tb2, ISO3 %in% df_iso_tb$ISO3)               # by eligible countries
+df_malaria_country    = filter(df_malaria2, ISO3 %in% df_iso_malaria$ISO3)     # by eligible countries
+df_malaria_portfolio = filter(df_malaria2, ISO3 %in% df_iso_malaria_portfolio$ISO3)     # by eligible countries which is SSA only
 
 # Add HIVneg for hiv
 df_hiv2 <- df_hiv2 %>%
@@ -101,7 +98,7 @@ df_hiv2 <- df_hiv2 %>%
 # Filter out indicators we do not need: 
 df_hiv     = subset(df_hiv2, select = names(df_hiv2) %in% list_indc_hiv_pip)
 df_tb      = subset(df_tb2, select = names(df_tb2) %in% list_indc_tb_pip)
-df_malaria = subset(df_malaria2, select = names(df_malaria2) %in% list_indc_malaria_pip)
+df_malaria = subset(df_malaria_country, select = names(df_malaria_country) %in% list_indc_malaria_pip)
 
 
 # Compute incidence and mortality
@@ -125,79 +122,77 @@ df_malaria = df_malaria %>%
 
 
 # Restrict years and drop extras variables
-df_hiv     <- df_hiv     %>% filter(Year >= first_year_trend, Year <= end_year_data) %>% select(any_of(list_ind))
-df_tb      <- df_tb      %>% filter(Year >= first_year_trend, Year <= end_year_data) %>% select(any_of(list_ind))
-df_malaria <- df_malaria %>% filter(Year >= first_year_trend, Year <= end_year_data) %>% select(any_of(list_ind))
+df_hiv     <- df_hiv     %>% filter(Year >= first_year_data, Year <= end_year_data) %>% select(any_of(list_ind))
+df_tb      <- df_tb      %>% filter(Year >= first_year_data, Year <= end_year_data) %>% select(any_of(list_ind))
+df_malaria <- df_malaria %>% filter(Year >= first_year_data, Year <= end_year_data) %>% select(any_of(list_ind))
 
 
 
 # ========== FUNCTIONS ==========
-# Apply scaling of incidence/mortality per disease
-apply_scaling <- function(df, disease_name, scaling_table) {
-  scale_row <- scaling_table %>% dplyr::filter(disease == tolower(disease_name))
-  if (nrow(scale_row) == 0) stop("No scaling info for disease: ", disease_name)
-  
-  df %>%
-    dplyr::mutate(
-      value_scaled = dplyr::case_when(
-        metric == "incidence" ~ value * scale_row$incidence_multiplier,
-        metric == "mortality" ~ value * scale_row$mortality_multiplier,
-        TRUE ~ value
-      ),
-      scale_label = dplyr::case_when(
-        metric == "incidence" ~ paste0("per ", formatC(scale_row$incidence_multiplier, format = "d", big.mark = ",")),
-        metric == "mortality" ~ paste0("per ", formatC(scale_row$mortality_multiplier, format = "d", big.mark = ",")),
-        TRUE ~ ""
-      )
-    )
-}
-
-# Long format + scaling (for lower-bound engine)
+# Long format (for lower-bound engine)
 df_hiv_long <- df_hiv %>%
   tidyr::pivot_longer(c(incidence, mortality),
                       names_to = "metric", values_to = "value") %>%
-  dplyr::mutate(metric = ifelse(metric == "incidence", "incidence", "mortality")) 
-
-df_hiv_long <- apply_scaling(df_hiv_long, "hiv", scaling_table)
+  dplyr::mutate(
+    value_scaled = value,     # raw
+    scale_label  = metric     # label for plots
+  )
 
 df_tb_long <- df_tb %>%
   tidyr::pivot_longer(c(incidence, mortality),
                       names_to = "metric", values_to = "value") %>%
-  dplyr::mutate(metric = ifelse(metric == "incidence", "incidence", "mortality")) 
-
-df_tb_long <- apply_scaling(df_tb_long, "tb", scaling_table)
+  dplyr::mutate(
+    value_scaled = value,
+    scale_label  = metric
+  )
 
 df_malaria_long <- df_malaria %>%
   tidyr::pivot_longer(c(incidence, mortality),
                       names_to = "metric", values_to = "value") %>%
-  dplyr::mutate(metric = ifelse(metric == "incidence", "incidence", "mortality"))
+  dplyr::mutate(
+    value_scaled = value,
+    scale_label  = metric
+  )
 
-df_malaria_long <- apply_scaling(df_malaria_long, "malaria", scaling_table)
 
 
 # ===================== LOWER-BOUND HELPERS (recent trends) =====================
 
 # Decide which years to use for the slope (pre-COVID years, optionally include 2024)
-choose_slope_years <- function(df, first_year_trend, end_year_trend, anchor_year,
-                               threshold_log_ratio = 0.10) {
-  # df must have: year, value_scaled (already scaled per disease/metric)
-  trend_years <- seq(first_year_trend, end_year_trend)
+choose_slope_years <- function(df,
+                               disease_name,
+                               anchor_year,
+                               threshold_log_ratio = include_2024_if_within_log_ratio,
+                               covid_years = covid_years) {
+  
+  cfg <- trend_windows[[tolower(disease_name)]]
+  if (is.null(cfg)) stop("No trend window config for disease: ", disease_name)
+  
+  # Pick the slope years depending on censor switch
+  if (isTRUE(cfg$censor)) {
+    trend_years <- seq(cfg$start, cfg$end)                # e.g. 2014–2019
+    trend_years <- setdiff(trend_years, covid_years)      # safety (no-op here)
+  } else {
+    trend_years <- seq(cfg$recent_start, cfg$recent_end)  # e.g. 2018–2023
+  }
+  
   d_pre <- df %>% dplyr::filter(Year %in% trend_years, is.finite(value_scaled))
   if (nrow(d_pre) < 3) return(trend_years)
   
   fit_pre <- lm(log(value_scaled) ~ Year, data = d_pre)
   pred_anchor <- exp(predict(fit_pre, newdata = data.frame(Year = anchor_year)))
-  y_anchor    <- df$value_scaled[df$Year == anchor_year][1]
+  y_anchor <- df$value_scaled[df$Year == anchor_year][1]
   
   if (!is.finite(y_anchor) || !is.finite(pred_anchor)) return(trend_years)
   
   log_ratio <- abs(log(y_anchor / pred_anchor))
   if (!is.na(log_ratio) && log_ratio <= threshold_log_ratio) {
-    sort(unique(c(trend_years, anchor_year)))  # include 2024 in slope
+    sort(unique(c(trend_years, anchor_year)))  # optionally include anchor in slope
   } else {
-    trend_years                                  # treat 2024 as level shift (anchor only)
+    trend_years
   }
 }
+
 
 # Project from the anchor using exponential decline (if beta<0) or linear increase (if beta>0)
 project_recent_trend <- function(df, slope_years, anchor_year, end_year,
@@ -231,9 +226,9 @@ project_recent_trend <- function(df, slope_years, anchor_year, end_year,
 
 # Country-level lower bound (expects *long* data with value_scaled)
 run_lower_bound_country <- function(df_long,
-                                    first_year_trend, end_year_trend,
+                                    disease_name,
                                     anchor_year, end_year,
-                                    include_2024_threshold = 0.10,
+                                    include_2024_threshold = include_2024_if_within_log_ratio,
                                     guard_linear_if_increasing = TRUE) {
   
   df_long %>%
@@ -247,23 +242,16 @@ run_lower_bound_country <- function(df_long,
         ) %>%
         dplyr::filter(!is.na(value_scaled))
       
-      # skip if too few valid points
-      if (nrow(d) < 3) {
-        message("Skipping ", unique(d$ISO3), " / ", unique(d$metric),
-                " (insufficient valid data)")
-        return(tibble::tibble())
-      }
+      if (nrow(d) < 3) return(tibble::tibble())
       
-      # pick trend window dynamically (based on 2024 proximity)
       slope_yrs <- choose_slope_years(
         d,
-        first_year_trend,
-        end_year_trend,
-        anchor_year,
-        threshold_log_ratio = include_2024_threshold
+        disease_name = disease_name,
+        anchor_year = anchor_year,
+        threshold_log_ratio = include_2024_threshold,
+        covid_years = covid_years
       )
       
-      # project using exponential or linear logic
       out <- project_recent_trend(
         d,
         slope_yrs,
@@ -280,25 +268,23 @@ run_lower_bound_country <- function(df_long,
 
 
 
+
 # ===================== RUN LOWER-BOUND PIPELINE =====================
 
 # Country-level projections (per country × metric)
-hiv_lb_country     <- run_lower_bound_country(df_hiv_long,
-                                              first_year_trend, end_year_trend,
+hiv_lb_country     <- run_lower_bound_country(df_hiv_long, "hiv",
                                               anchor_year = end_year_data, end_year = end_year,
                                               include_2024_threshold = include_2024_if_within_log_ratio,
                                               guard_linear_if_increasing = guard_linear_if_increasing) %>%
   dplyr::mutate(disease = "hiv")
 
-tb_lb_country      <- run_lower_bound_country(df_tb_long,
-                                              first_year_trend, end_year_trend,
+tb_lb_country      <- run_lower_bound_country(df_tb_long, "tb",
                                               anchor_year = end_year_data, end_year = end_year,
                                               include_2024_threshold = include_2024_if_within_log_ratio,
                                               guard_linear_if_increasing = guard_linear_if_increasing) %>%
   dplyr::mutate(disease = "tb")
 
-malaria_lb_country <- run_lower_bound_country(df_malaria_long,
-                                              first_year_trend, end_year_trend,
+malaria_lb_country <- run_lower_bound_country(df_malaria_long, "malaria",
                                               anchor_year = end_year_data, end_year = end_year,
                                               include_2024_threshold = include_2024_if_within_log_ratio,
                                               guard_linear_if_increasing = guard_linear_if_increasing) %>%
@@ -326,7 +312,7 @@ plot_country <- function(country_code, data, first_year_data, end_year) {
         x = "Year",
         y = unique(df_panel$scale_label)
       ) +
-      scale_x_continuous(breaks = seq(first_year_trend, end_year, by = 1)) +
+      scale_x_continuous(breaks = seq(first_year_data, end_year, by = 1)) +
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 45, hjust = 1))
   }
@@ -351,19 +337,19 @@ plot_country <- function(country_code, data, first_year_data, end_year) {
 # ---- Export PDFs (country-level) ----
 pdf(file.path(output_path, "HIV_LB_projections_by_country.pdf"), width = 12, height = 6)
 for (c in unique(hiv_lb_country$ISO3)) {
-  print(plot_country(c, hiv_lb_country, first_year_trend, end_year))
+  print(plot_country(c, hiv_lb_country, first_year_data, end_year))
 }
 dev.off()
 
 pdf(file.path(output_path, "TB_LB_projections_by_country.pdf"), width = 12, height = 6)
 for (c in unique(tb_lb_country$ISO3)) {
-  print(plot_country(c, tb_lb_country, first_year_trend, end_year))
+  print(plot_country(c, tb_lb_country, first_year_data, end_year))
 }
 dev.off()
 
 pdf(file.path(output_path, "Malaria_LB_projections_by_country.pdf"), width = 12, height = 6)
 for (c in unique(malaria_lb_country$ISO3)) {
-  print(plot_country(c, malaria_lb_country, first_year_trend, end_year))
+  print(plot_country(c, malaria_lb_country, first_year_data, end_year))
 }
 dev.off()
 
@@ -371,10 +357,10 @@ dev.off()
 # ===================== PORTFOLIO (AGGREGATED) LOWER-BOUND =====================
 
 # 1) Build aggregated long series for a disease (sum numerators/denominators, then rate)
-build_agg_long <- function(df_wide, disease_name, first_year_trend, end_year_data) {
+build_agg_long <- function(df_wide, disease_name, end_year_data) {
   if (disease_name == "hiv") {
     agg <- df_wide %>%
-      dplyr::filter(Year >= first_year_trend, Year <= end_year_data) %>%
+      dplyr::filter(Year <= end_year_data) %>%
       dplyr::group_by(Year) %>%
       dplyr::summarise(
         cases  = sum(hiv_cases_n_pip, na.rm = TRUE),
@@ -391,7 +377,7 @@ build_agg_long <- function(df_wide, disease_name, first_year_trend, end_year_dat
   } else if (disease_name == "tb") {
     # Chose the TB deaths 
     agg <- df_wide %>%
-      dplyr::filter(Year >= first_year_trend, Year <= end_year_data) %>%
+      dplyr::filter(Year <= end_year_data) %>%
       dplyr::group_by(Year) %>%
       dplyr::summarise(
         cases  = sum(tb_cases_n_pip, na.rm = TRUE),
@@ -406,7 +392,7 @@ build_agg_long <- function(df_wide, disease_name, first_year_trend, end_year_dat
       )
   } else if (disease_name == "malaria") {
     agg <- df_wide %>%
-      dplyr::filter(Year >= first_year_trend, Year <= end_year_data) %>%
+      dplyr::filter(Year <= end_year_data) %>%
       dplyr::group_by(Year) %>%
       dplyr::summarise(
         cases  = sum(malaria_cases_n_pip, na.rm = TRUE),
@@ -423,24 +409,26 @@ build_agg_long <- function(df_wide, disease_name, first_year_trend, end_year_dat
     stop("Unknown disease: ", disease_name)
   }
   
-  # Long + scaling; add dummy 'country' to reuse group_modify()
+  # Long; add dummy 'country' to reuse group_modify()
   agg_long <- agg %>%
-    tidyr::pivot_longer(c(incidence, mortality), names_to = "metric", values_to = "value")
+    tidyr::pivot_longer(c(incidence, mortality), names_to = "metric", values_to = "value") %>%
+    dplyr::mutate(
+      value_scaled = value,
+      scale_label  = metric,
+      country = disease_name
+    )
   
-  agg_long <- apply_scaling(agg_long, disease_name, scaling_table)
-    
-    agg_long %>%
-    dplyr::mutate(country = disease_name)
+  return(agg_long)
 }
+  
 
 # 2) Apply lower-bound logic to the aggregated long series
 run_lower_bound_portfolio <- function(df_wide, disease_name,
-                                      first_year_trend, end_year_trend,
                                       anchor_year, end_year,
-                                      include_2024_threshold = 0.10,
+                                      include_2024_threshold = include_2024_if_within_log_ratio,
                                       guard_linear_if_increasing = TRUE) {
   
-  agg_long <- build_agg_long(df_wide, disease_name, first_year_trend, end_year_data)
+  agg_long <- build_agg_long(df_wide, disease_name, end_year_data)
   
   agg_long %>%
     dplyr::group_by(country, metric, scale_label) %>%
@@ -460,10 +448,10 @@ run_lower_bound_portfolio <- function(df_wide, disease_name,
       
       slope_yrs <- choose_slope_years(
         d,
-        first_year_trend,
-        end_year_trend,
-        anchor_year,
-        threshold_log_ratio = include_2024_threshold
+        disease_name = disease_name,
+        anchor_year = anchor_year,
+        threshold_log_ratio = include_2024_threshold,
+        covid_years = covid_years
       )
       
       out <- project_recent_trend(
@@ -485,17 +473,14 @@ run_lower_bound_portfolio <- function(df_wide, disease_name,
 
 # ---- Portfolio-level (aggregated) ----
 hiv_lb_portfolio     <- run_lower_bound_portfolio(df_hiv2, "hiv",
-                                                  first_year_trend, end_year_trend,
                                                   anchor_year = end_year_data, end_year = end_year,
                                                   include_2024_threshold = include_2024_if_within_log_ratio,
                                                   guard_linear_if_increasing = guard_linear_if_increasing)
 tb_lb_portfolio      <- run_lower_bound_portfolio(df_tb2, "tb",
-                                                  first_year_trend, end_year_trend,
                                                   anchor_year = end_year_data, end_year = end_year,
                                                   include_2024_threshold = include_2024_if_within_log_ratio,
                                                   guard_linear_if_increasing = guard_linear_if_increasing)
-malaria_lb_portfolio <- run_lower_bound_portfolio(df_malaria2_portfolio, "malaria",
-                                                  first_year_trend, end_year_trend,
+malaria_lb_portfolio <- run_lower_bound_portfolio(df_malaria_portfolio, "malaria",
                                                   anchor_year = end_year_data, end_year = end_year,
                                                   include_2024_threshold = include_2024_if_within_log_ratio,
                                                   guard_linear_if_increasing = guard_linear_if_increasing)
@@ -524,9 +509,9 @@ plot_portfolio <- function(df, disease_name, start_year, end_year) {
 
 # Create and export the portfolio plots as PDF
 pdf(file.path(output_path, "Portfolio_LB_Projections.pdf"), width = 10, height = 6)
-print(plot_portfolio(hiv_lb_portfolio,     "HIV",      first_year_trend, end_year))
-print(plot_portfolio(tb_lb_portfolio,      "TB",       first_year_trend, end_year))
-print(plot_portfolio(malaria_lb_portfolio, "Malaria",  first_year_trend, end_year))
+print(plot_portfolio(hiv_lb_portfolio,     "HIV",      first_year_data, end_year))
+print(plot_portfolio(tb_lb_portfolio,      "TB",       first_year_data, end_year))
+print(plot_portfolio(malaria_lb_portfolio, "Malaria",  first_year_data, end_year))
 dev.off()
 
 
@@ -572,16 +557,16 @@ mortality_index  <- make_portfolio_index(portfolio_all, "mortality", base_year =
 # 3) Add to your Portfolio PDF (recreate with the combined pages appended)
 pdf(file.path(output_path, "Portfolio_LB_Projections.pdf"), width = 10, height = 6)
 # Existing disease pages (reprint to include everything in one file)
-print(plot_portfolio(hiv_lb_portfolio,     "HIV",     first_year_trend, end_year))
-print(plot_portfolio(tb_lb_portfolio,      "TB",      first_year_trend, end_year))
-print(plot_portfolio(malaria_lb_portfolio, "Malaria", first_year_trend, end_year))
+print(plot_portfolio(hiv_lb_portfolio,     "HIV",     first_year_data, end_year))
+print(plot_portfolio(tb_lb_portfolio,      "TB",      first_year_data, end_year))
+print(plot_portfolio(malaria_lb_portfolio, "Malaria", first_year_data, end_year))
 # New combined index pages
 #print(plot_portfolio_index(incidence_index,
 #                           "Combined Portfolio Incidence Index (base 2020 = 100)",
-#                           first_year_trend, end_year))
+#                           first_year_data, end_year))
 #print(plot_portfolio_index(mortality_index,
 #                           "Combined Portfolio Mortality Index (base 2020 = 100)",
-#                           first_year_trend, end_year))
+#                           first_year_data, end_year))
 dev.off()
 
 # 4) Export a portfolio Excel with all sheets (diseases + combined indices)
@@ -594,6 +579,7 @@ write_xlsx(
     Combined_Mortality_Index = mortality_index),
   path = file.path(output_path, "Portfolio_LB_Projections.xlsx")
 )
+
 
 
 
