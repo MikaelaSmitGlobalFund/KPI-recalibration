@@ -58,8 +58,8 @@ post_covid_year = 2024       # first year of "post-COVID" period
 # TB country reporting choice
 tb_death_country    = "deaths"        # options: "deaths" or "deathshivneg"
 tb_mort_country     = "mortality"     # options: "mortality" or "mortality_hivneg"
-tb_deaths_portfolio = "deathshivneg"  # or "tb_deaths_n_pip"
-tb_mort_portfolio   = "mortality_hivneg"  # or "tb_deaths_n_pip"
+tb_deaths_portfolio = "deathshivneg"  # or "deaths"
+tb_mort_portfolio   = "mortality_hivneg"  # or "mortality"
 
 
 
@@ -201,7 +201,7 @@ df_hiv_gp2 <- df_hiv_gp2 %>%
   )%>%
   select(ISO3, Year, cases_sdg, deaths_sdg, HIVneg_sdg, Population_sdg)
 
-df_tb_gp2 <- df_tb_gp2 %>%
+df_tb_gp2 <- df_tb_gp2 %>% 
   rename(
     cases_sdg  = Cases,
     deaths_ori_sdg = Deaths
@@ -256,7 +256,7 @@ df_tb_gp_baseline = df_tb_gp_baseline %>%
   mutate(
     ratio_cases      = (cases/cases_sdg),
     ratio_deaths     = (deaths/deaths_ori_sdg),
-    ratio_deathshivneg = (deathshivneg/deaths_ori_sdg),
+    ratio_deathshivneg = (deathshivneg/deaths_ori_sdg), # We do not have hivneg deaths, we use scaling to get it
     ratio_population = (tb_pop_n_pip/Population)
   )
 df_tb_gp_baseline = subset(df_tb_gp_baseline, select = c(ISO3, ratio_cases, ratio_deaths, ratio_deathshivneg, ratio_population))
@@ -763,6 +763,9 @@ df_hiv_rate_red      = subset(df_hiv, select = names(df_hiv) %in% c("ISO3", "Yea
 df_tb_rate_red       = subset(df_tb, select = names(df_tb) %in% c("ISO3", "Year", "incidence", "mortality"))
 df_malaria_rate_red  = subset(df_malaria, select = names(df_malaria) %in% c("ISO3", "Year", "incidence", "mortality"))
 
+# Replace tb mortality if needed
+df_tb_rate_red$mortality <- df_tb_rate_red[[tb_mort_country]]
+
 # Filter for the years to be compared
 df_hiv_rate_red     = df_hiv_rate_red %>% filter(Year==end_year_data | Year==start_year_reporting)
 df_tb_rate_red      = df_tb_rate_red %>% filter(Year==end_year_data | Year==start_year_reporting)
@@ -831,11 +834,16 @@ df_hiv_final = df_hiv_final %>%
     Gap_in_nr_deaths = (Number_of_deaths_gap_year - deaths_sdg),
   )
 
+tb_gp_deaths_col <- ifelse(tb_death_country == "deathshivneg",
+                           "deathshivneg_sdg",
+                           "deaths_sdg")
+
 df_tb_final = df_tb_final %>%
   mutate(
-    Gap_in_nr_cases = (Number_of_cases_new_infections_gap_year - cases_sdg),
-    Gap_in_nr_deaths = (Number_of_deaths_gap_year - deaths_sdg),
+    Gap_in_nr_cases  = Number_of_cases_new_infections_gap_year - cases_sdg,
+    Gap_in_nr_deaths = Number_of_deaths_gap_year - .data[[tb_gp_deaths_col]]
   )
+
 
 df_malaria_final = df_malaria_final %>%
   mutate(
@@ -992,11 +1000,11 @@ df_tb_actual <- df_tb2 %>%
   filter(Year >= start_year_min, Year <= end_year_data) %>%
   group_by(Year) %>%
   summarise(
-    cases        = sum(tb_cases_n_pip, na.rm = TRUE),
-    deathshivneg = sum(tb_deathsnohiv_n_pip, na.rm = TRUE),
-    Population       = sum(tb_pop_n_pip, na.rm = TRUE),
+    cases     = sum(cases, na.rm = TRUE),
+    deaths = sum(.data[[tb_deaths_portfolio]], na.rm = TRUE),
+    Population = sum(tb_pop_n_pip, na.rm = TRUE),
     .groups = "drop"
-  ) 
+  )
 
 # Malaria (SSA): incidence uses par; mortality uses deaths/par
 df_malaria_actual <- df_malaria_portfolio %>%
@@ -1024,7 +1032,7 @@ df_hiv_gp_port <- df_hiv_gp2 %>%
     .groups = "drop"
   ) 
 
-# TB GP: 2015–2030 (HIV-neg deaths)
+# TB GP: 2015–2030 (we do not have hivneg deaths, we use scaling to get it)
 df_tb_gp_port <- df_tb_gp2 %>%
   filter(Year >= start_year_gp_tm, Year <= end_year_sdg) %>%
   group_by(Year) %>%
@@ -1070,9 +1078,12 @@ df_hiv_gp_port <- df_hiv_gp_port %>%
 tb_partner_base <- df_tb_actual %>% filter(Year == start_year_gp_tm)
 tb_gp_base      <- df_tb_gp_port %>% filter(Year == start_year_gp_tm)
 
-tb_ratio_cases      = tb_partner_base$cases        / tb_gp_base$cases_sdg
-tb_ratio_deaths     = tb_partner_base$deathshivneg / tb_gp_base$deaths_sdg
-tb_ratio_population = tb_partner_base$Population   / tb_gp_base$Population_sdg
+
+# Scalars (ratios)
+tb_ratio_cases      <- tb_partner_base$cases      / tb_gp_base$cases_sdg
+tb_ratio_deaths     <- tb_partner_deaths_base     / tb_gp_base$deaths_sdg
+tb_ratio_population <- tb_partner_base$Population / tb_gp_base$Population_sdg
+
 
 # ---- Apply ratios to ALL TB GP years + recompute rates ----
 df_tb_gp_port <- df_tb_gp_port %>%
