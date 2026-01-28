@@ -454,6 +454,7 @@ run_lower_bound_country <- function(df_long,
 }
 
 # ---- Helper function to plot one country's incidence + mortality ----
+# ---- Helper function to plot one country's metrics (cases/deaths/deathshivneg/etc.) ----
 plot_country <- function(country_code, data, first_year_data, end_year) {
   df_c <- data %>% dplyr::filter(ISO3 == country_code)
   
@@ -462,38 +463,36 @@ plot_country <- function(country_code, data, first_year_data, end_year) {
     return(NULL)
   }
   
-  # inner helper for each metric
-  make_panel <- function(d_metric, line_col, title_suffix) {
-    df_panel <- df_c %>% dplyr::filter(metric == d_metric)
+  metrics <- unique(df_c$metric)
+  
+  make_panel <- function(m) {
+    df_panel <- df_c %>% dplyr::filter(metric == m) %>% dplyr::arrange(Year)
     if (nrow(df_panel) == 0) return(NULL)
     
-    ggplot(df_panel, aes(x = Year, y = projection)) +
-      geom_line(color = line_col, linewidth = 1) +
-      geom_point(aes(y = observed), color = "black", size = 1.5) +
-      labs(
-        title = paste0(country_code, " – ", unique(df_c$disease), " ", title_suffix),
+    # safer y label
+    y_lab <- df_panel$scale_label[which(!is.na(df_panel$scale_label))[1]]
+    if (is.na(y_lab) || length(y_lab) == 0) y_lab <- m
+    
+    ggplot2::ggplot(df_panel, ggplot2::aes(x = Year, y = projection)) +
+      ggplot2::geom_line(linewidth = 1) +
+      ggplot2::geom_point(ggplot2::aes(y = observed), size = 1.5) +
+      ggplot2::labs(
+        title = paste0(country_code, " – ", unique(df_c$disease), " – ", m),
         x = "Year",
-        y = unique(df_panel$scale_label)
+        y = y_lab
       ) +
-      scale_x_continuous(breaks = seq(first_year_data, end_year, by = 1)) +
-      theme_minimal() +
-      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+      ggplot2::scale_x_continuous(breaks = seq(first_year_data, end_year, by = 1)) +
+      ggplot2::theme_minimal() +
+      ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
   }
   
-  p_inc  <- make_panel("incidence", "blue", "Incidence")
-  p_mort <- make_panel("mortality", "red",  "Mortality")
+  plots <- lapply(metrics, make_panel)
+  plots <- Filter(Negate(is.null), plots)
+  if (length(plots) == 0) return(NULL)
   
-  # Combine the two side by side if both exist
-  if (!is.null(p_inc) && !is.null(p_mort)) {
-    p_inc + p_mort + patchwork::plot_layout(ncol = 2)
-  } else if (!is.null(p_inc)) {
-    p_inc
-  } else if (!is.null(p_mort)) {
-    p_mort
-  } else {
-    NULL
-  }
+  patchwork::wrap_plots(plots, ncol = min(2, length(plots)))
 }
+
 
 # ===================== PORTFOLIO (AGGREGATED) LOWER-BOUND =====================
 
