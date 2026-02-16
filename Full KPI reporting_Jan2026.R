@@ -46,9 +46,9 @@ guard_linear_if_increasing <- TRUE  # keep TRUE for your “lower bound” rule
 
 # 3. Decide which years to use to establish slope by disease
 trend_windows <- list(
-  hiv     = list(censor = FALSE,  start = 2014, end = 2019, recent_start = 2019, recent_end = 2024),
-  tb      = list(censor = TRUE,  start = 2014, end = 2019, recent_start = 2018, recent_end = 2023),
-  malaria = list(censor = TRUE,  start = 2014, end = 2019, recent_start = 2018, recent_end = 2023)
+  hiv     = list(censor = FALSE,  start = 2014, end = 2019, recent_start = 2015, recent_end = 2024),
+  tb      = list(censor = TRUE,  start = 2010, end = 2019, recent_start = 2018, recent_end = 2023),
+  malaria = list(censor = TRUE,  start = 2010, end = 2019, recent_start = 2018, recent_end = 2023)
 )
 
 covid_years     = 2020:2023  # years treated as COVID shocks
