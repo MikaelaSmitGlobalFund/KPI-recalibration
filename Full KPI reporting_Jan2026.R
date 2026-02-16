@@ -22,7 +22,7 @@ firstrun   = 0                            # If need to install package change to
 computer   = 1                            # 1 = Mikaela # Add additional computer if needed
 
 # ========== SET YEAR PREFERENCES ==========
-start_year_min       = 2014                 # This cuts off the first year and removes years were HIVneg with the lag are wrong
+start_year_min       = 2010                 # This cuts off the first year and removes years were HIVneg with the lag are wrong
 end_year_data        = 2024                 # This is the year of latest partner data
 end_year_sdg         = 2030                 # This is the final year of prediction
 start_year_reporting = 2021                 # This year is the base year of reporting, in this case 2021
@@ -38,7 +38,7 @@ norm_year            = 2020       # year at which the rates will be normalized f
 
 # ========== SET PARAMETERS FOR PROJECTIONS ==========
 # 1. Decision rule for including 2024 in slope
-include_2024_if_within_log_ratio <- 0.10  # ≈ ±10% of pre-COVID trend line at 2024, set to 0 to never include, set to 1 to always include
+include_2024_if_within_log_ratio <- 0.1  # ≈ ±10% of pre-COVID trend line at 2024, set to 0 to never include, set to 1 to always include
 
 # 2. Guard-rail behavior:
 # if trend over the window suggests increase, use linear; if decline, use exponential
@@ -46,7 +46,7 @@ guard_linear_if_increasing <- TRUE  # keep TRUE for your “lower bound” rule
 
 # 3. Decide which years to use to establish slope by disease
 trend_windows <- list(
-  hiv     = list(censor = FALSE,  start = 2014, end = 2019, recent_start = 2018, recent_end = 2023),
+  hiv     = list(censor = FALSE,  start = 2014, end = 2019, recent_start = 2019, recent_end = 2024),
   tb      = list(censor = TRUE,  start = 2014, end = 2019, recent_start = 2018, recent_end = 2023),
   malaria = list(censor = TRUE,  start = 2014, end = 2019, recent_start = 2018, recent_end = 2023)
 )
@@ -977,7 +977,7 @@ write.csv(df_kpi_I2, file=file.path(output_path,"df_kpi_I2_Jan2026.csv"), na = "
 df_malaria_portfolio <- df_malaria2 %>% filter(ISO3 %in% df_iso_malaria_portfolio$ISO3)
 df_malaria_gp_portfolio <- df_malaria_gp2 %>% filter(ISO3 %in% df_iso_malaria_portfolio$ISO3)
 
-df_hiv2       = filter(df_hiv2, ISO3 %in% df_iso_hiv$ISO3)                    # by eligible countries
+df_hiv2       = filter(df_hiv2, ISO3 %in% df_iso_hiv_portfolio$ISO3)                    # by eligible countries
 df_tb2        = filter(df_tb2, ISO3 %in% df_iso_tb$ISO3)                      # by eligible countries
 
 
@@ -1080,7 +1080,7 @@ tb_gp_base      <- df_tb_gp_port %>% filter(Year == start_year_gp_tm)
 
 # Scalars (ratios)
 tb_ratio_cases      <- tb_partner_base$cases      / tb_gp_base$cases_sdg
-tb_ratio_deaths     <- tb_partner_deaths_base     / tb_gp_base$deaths_sdg
+tb_ratio_deaths     <- tb_partner_base$deaths     / tb_gp_base$deaths_sdg
 tb_ratio_population <- tb_partner_base$Population / tb_gp_base$Population_sdg
 
 
