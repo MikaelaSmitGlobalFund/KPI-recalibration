@@ -361,9 +361,11 @@ choose_slope_years <- function(df,
   
   if (!is.finite(y_anchor) || !is.finite(pred_anchor)) return(trend_years)
   
-  log_ratio <- abs(log(y_anchor / pred_anchor))
-  if (!is.na(log_ratio) && log_ratio <= threshold_log_ratio) {
-    sort(unique(c(trend_years, anchor_year)))  # optionally include anchor in slope
+  log_ratio_signed <- log(y_anchor / pred_anchor)
+  
+  # include anchor unless it's MORE than threshold above trend
+  if (!is.na(log_ratio_signed) && log_ratio_signed <= threshold_log_ratio) {
+    sort(unique(c(trend_years, anchor_year)))
   } else {
     trend_years
   }
