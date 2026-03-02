@@ -336,34 +336,33 @@ df_malaria_gp = subset(df_malaria_gp, select = -c(ratio_cases, ratio_deaths, rat
 choose_slope_years <- function(df,
                                disease_name,
                                anchor_year,
-                               threshold_log_ratio = include_2024_if_within_log_ratio,
+                               threshold_log_ratio = log(1.10),  # exactly +10%
                                covid_years = covid_years) {
   
   cfg <- trend_windows[[tolower(disease_name)]]
   if (is.null(cfg)) stop("No trend window config for disease: ", disease_name)
   
-  # Pick the slope years depending on censor switch
+  # Base slope years
   if (isTRUE(cfg$censor)) {
-    trend_years <- seq(cfg$start, cfg$end)                # e.g. 2014–2019
-    trend_years <- setdiff(trend_years, covid_years)      # safety (no-op here)
+    trend_years <- seq(cfg$start, cfg$end)          # TB/malaria: 2010–2019
+    trend_years <- setdiff(trend_years, covid_years)
   } else {
-    trend_years <- seq(cfg$recent_start, cfg$recent_end)  # e.g. 2018–2023
+    trend_years <- seq(cfg$recent_start, cfg$recent_end)  # HIV: 2015–2024
   }
   
-  d_pre <- df %>%
-    dplyr::filter(Year %in% trend_years, is.finite(value_scaled)) %>%
-    dplyr::mutate(value_scaled = pmax(value_scaled, .eps))
-  if (nrow(d_pre) < 3) return(trend_years)
-  
-  fit_pre <- lm(log(value_scaled) ~ Year, data = d_pre)
-  pred_anchor <- exp(predict(fit_pre, newdata = data.frame(Year = anchor_year)))
+  # Anchor value (e.g., 2024)
   y_anchor <- df$value_scaled[df$Year == anchor_year][1]
+  if (!is.finite(y_anchor)) return(trend_years)
   
-  if (!is.finite(y_anchor) || !is.finite(pred_anchor)) return(trend_years)
+  # Reference year = last year in slope window (e.g., 2019)
+  ref_year <- max(trend_years, na.rm = TRUE)
+  y_ref <- df$value_scaled[df$Year == ref_year][1]
+  if (!is.finite(y_ref) || y_ref <= 0) return(trend_years)
   
-  log_ratio_signed <- log(y_anchor / pred_anchor)
+  # signed log ratio: >0 means anchor above ref
+  log_ratio_signed <- log(y_anchor / y_ref)
   
-  # include anchor unless it's MORE than threshold above trend
+  # include anchor unless it's MORE than +10% above ref
   if (!is.na(log_ratio_signed) && log_ratio_signed <= threshold_log_ratio) {
     sort(unique(c(trend_years, anchor_year)))
   } else {
@@ -373,33 +372,72 @@ choose_slope_years <- function(df,
 
 # Project from the anchor using exponential decline (if beta<0) or linear increase (if beta>0)
 project_recent_trend <- function(df, slope_years, anchor_year, end_year,
-                                 guard_linear_if_increasing = TRUE) {
+                                 guard_linear_if_increasing = TRUE,
+                                 disease_name = NA,
+                                 metric_name = NA) {
+  
   d_slope <- df %>%
     dplyr::filter(Year %in% slope_years, is.finite(value_scaled)) %>%
     dplyr::mutate(value_scaled = pmax(value_scaled, .eps))
+  
   if (nrow(d_slope) < 2) return(NULL)
   
+  # ---- estimate slopes ----
   fit_log <- lm(log(value_scaled) ~ Year, data = d_slope)
   beta <- coef(fit_log)["Year"]; if (is.na(beta)) beta <- 0
   
-  y_anchor <- df %>% dplyr::filter(Year == anchor_year) %>% dplyr::pull(value_scaled) %>% .[1]
+  fit_lin <- lm(value_scaled ~ Year, data = d_slope)
+  slope_lin <- coef(fit_lin)["Year"]; if (is.na(slope_lin)) slope_lin <- 0
+  
+  # ---- anchor value (e.g. 2024) ----
+  y_anchor <- df %>%
+    dplyr::filter(Year == anchor_year) %>%
+    dplyr::pull(value_scaled) %>%
+    .[1]
+  
   if (!is.finite(y_anchor)) return(NULL)
   
   use_linear <- guard_linear_if_increasing && (beta > 0)
   
-  pred_fun <- if (use_linear) {
-    fit_lin <- lm(value_scaled ~ Year, data = d_slope)
-    slope_lin <- coef(fit_lin)["Year"]; if (is.na(slope_lin)) slope_lin <- 0
-    function(yrs) y_anchor + slope_lin * (yrs - anchor_year)
+  if (use_linear) {
+    
+    intercept_anchor <- y_anchor - slope_lin * anchor_year
+    
+    message("SLOPE FIT | disease=", disease_name,
+            " | metric=", metric_name,
+            " | slope_years=", min(slope_years), "-", max(slope_years),
+            " | slope=", round(slope_lin, 6),
+            " | intercept_anchor=", round(intercept_anchor, 6),
+            " | model=LINEAR (anchored)")
+    
+    pred_fun <- function(yrs) {
+      y_anchor + slope_lin * (yrs - anchor_year)
+    }
+    
   } else {
-    function(yrs) y_anchor * exp(beta * (yrs - anchor_year))
+    
+    alpha_anchor <- log(y_anchor) - beta * anchor_year
+    
+    message("SLOPE FIT | disease=", disease_name,
+            " | metric=", metric_name,
+            " | slope_years=", min(slope_years), "-", max(slope_years),
+            " | log-slope(beta)=", round(beta, 6),
+            " | log-intercept(alpha)=", round(alpha_anchor, 6),
+            " | model=EXP (anchored)")
+    
+    pred_fun <- function(yrs) {
+      y_anchor * exp(beta * (yrs - anchor_year))
+    }
   }
   
   future_years <- seq(anchor_year + 1, end_year)
+  
   tibble::tibble(
     Year       = c(df$Year[df$Year <= anchor_year], future_years),
-    observed   = c(df$value_scaled[df$Year <= anchor_year], rep(NA_real_, length(future_years))),
-    projection = c(df$value_scaled[df$Year <= anchor_year], pred_fun(future_years))
+    observed   = c(df$value_scaled[df$Year <= anchor_year],
+                   rep(NA_real_, length(future_years))),
+    projection = c(df$value_scaled[df$Year <= anchor_year],
+                   pred_fun(future_years))
   )
 }
 
@@ -446,7 +484,9 @@ run_lower_bound_country <- function(df_long,
         slope_yrs,
         anchor_year,
         end_year,
-        guard_linear_if_increasing = guard_linear_if_increasing
+        guard_linear_if_increasing = guard_linear_if_increasing,
+        disease_name = disease_name,
+        metric_name  = unique(.x$metric)
       )
       
       if (is.null(out)) return(tibble::tibble())
@@ -600,7 +640,7 @@ run_lower_bound_portfolio <- function(df_wide, disease_name,
         slope_yrs,
         anchor_year,
         end_year,
-        guard_linear_if_increasing = guard_linear_if_increasing
+        guard_linear_if_increasing = guard_linear_if_increasing,
       )
       
       if (is.null(out)) return(tibble::tibble())
@@ -1176,78 +1216,59 @@ df_malaria_lb_portfolio <- df_malaria_lb_portfolio %>%
   )
 
 
-
-
-# ---------- 4) Stitch observed + GP into ONE series per disease ----------
-hiv_portfolio <- full_join(df_hiv_lb_portfolio, df_hiv_gp_port, by = "Year") %>%
-  filter(Year >= 2010) %>%
-  arrange(Year)
-
-tb_portfolio <- full_join(df_tb_lb_portfolio, df_tb_gp_port, by = "Year") %>%
-  filter(Year >= 2010) %>%
-  arrange(Year) 
-
-malaria_portfolio <- full_join(df_malaria_lb_portfolio, df_malaria_gp_port, by = "Year") %>%
-  filter(Year >= 2010) %>%
-  arrange(Year) 
-
-
-
 # ---------- 5) Combined indices (base = norm_year = 2020) ----------
 # 1) Bind portfolio series together
 portfolio_all <- dplyr::bind_rows(
-  dplyr::mutate(hiv_portfolio,     disease = "HIV"),
-  dplyr::mutate(tb_portfolio,      disease = "TB"),
-  dplyr::mutate(malaria_portfolio, disease = "Malaria")
+  dplyr::mutate(df_hiv_lb_portfolio,     disease = "HIV"),
+  dplyr::mutate(df_tb_lb_portfolio,      disease = "TB"),
+  dplyr::mutate(df_malaria_lb_portfolio, disease = "Malaria")
 )
 
-# 2) NORAMLISE: Helper to build a base-2020=100 index and average across diseases
-make_portfolio_index <- function(df,
-                                 actual_col,
-                                 proj_col,
-                                 base_year = norm_year) {
+# Make one df for incidence one for mortality
+incidence_portfolio <- portfolio_all %>%
+  dplyr::select(Year, disease, value = incidence_proj) %>%
+  dplyr::arrange(Year, disease)
+
+mortality_portfolio <- portfolio_all %>%
+  dplyr::select(Year, disease, value = mortality_proj) %>%
+  dplyr::arrange(Year, disease)
+
+# 4) Average across diseases (unweighted mean)
+incidence_portfolio <- incidence_portfolio %>%
+  dplyr::group_by(Year) %>%
+  dplyr::summarise(
+    incidence_proj_avg = mean(value, na.rm = TRUE),
+    n_diseases = sum(is.finite(value)),
+    .groups = "drop"
+  ) %>%
+  dplyr::arrange(Year)
+
+mortality_portfolio <- mortality_portfolio %>%
+  dplyr::group_by(Year) %>%
+  dplyr::summarise(
+    mortality_proj_avg = mean(value, na.rm = TRUE),
+    n_diseases = sum(is.finite(value)),
+    .groups = "drop"
+  ) %>%
+  dplyr::arrange(Year)
+
+# 5) Normalise the AVERAGE series to base year = 2020 (or norm_year)
+make_index_from_avg <- function(df, value_col, base_year = norm_year) {
+  base_val <- df[[value_col]][df$Year == base_year]
+  base_val <- base_val[is.finite(base_val)]
+  base_val <- if (length(base_val) == 0) NA_real_ else base_val[1]
   
   df %>%
-    dplyr::group_by(disease) %>%
     dplyr::mutate(
-      base_actual = .data[[actual_col]][Year == base_year][1],
-      base_proj   = .data[[proj_col]][Year == base_year][1],
-      
-      index_actual = 100 * .data[[actual_col]] / base_actual,
-      index_proj   = 100 * .data[[proj_col]]   / base_proj
-    ) %>%
-    dplyr::ungroup() %>%
-    # keep only rows where at least one index is valid
-    dplyr::filter(
-      (is.finite(index_actual) & base_actual > 0) |
-        (is.finite(index_proj)   & base_proj   > 0)
-    ) %>%
-    dplyr::group_by(Year) %>%
-    dplyr::summarise(
-      index_actual_mean = mean(index_actual, na.rm = TRUE),
-      index_proj_mean   = mean(index_proj,   na.rm = TRUE),
-      
-      n_diseases_actual = sum(is.finite(index_actual)),
-      n_diseases_proj   = sum(is.finite(index_proj)),
-      .groups = "drop"
+      base_year = base_year,
+      base_value = base_val,
+      index = 100 * .data[[value_col]] / base_val
     )
 }
 
+incidence_index <- make_index_from_avg(incidence_portfolio, "incidence_proj_avg", base_year = norm_year)
+mortality_index <- make_index_from_avg(mortality_portfolio, "mortality_proj_avg", base_year = norm_year)
 
-# Normalize
-incidence_index <- make_portfolio_index(
-  portfolio_all,
-  actual_col = "incidence_actual",
-  proj_col   = "incidence_proj",
-  base_year  = norm_year
-)
-
-mortality_index <- make_portfolio_index(
-  portfolio_all,
-  actual_col = "mortality_actual",
-  proj_col   = "mortality_proj",
-  base_year  = norm_year
-)
 
 
 # 6) Export a portfolio Excel with all sheets (diseases + combined indices)
