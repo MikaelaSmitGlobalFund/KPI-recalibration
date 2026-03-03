@@ -189,7 +189,8 @@ tb_targets <- tb_full %>%
     iso3, year,
     sdg_incidence_rate, sdg_cases,
     sdg_deaths_all, sdg_deaths_hivneg,
-    sdg_mortality_all_rate, sdg_mortality_hivneg_rate
+    sdg_mortality_all_rate, sdg_mortality_hivneg_rate,
+    pop
   ) %>%
   filter(
     !is.na(sdg_incidence_rate),

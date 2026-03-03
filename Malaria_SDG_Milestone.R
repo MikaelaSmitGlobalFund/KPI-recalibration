@@ -169,7 +169,8 @@ malaria_targets <- malaria_full %>%
   select(
     iso3, year,
     sdg_incidence_rate, sdg_mortality_rate,
-    sdg_cases, sdg_deaths
+    sdg_cases, sdg_deaths, 
+    par
   ) %>%
   filter(
     !is.na(sdg_incidence_rate),
