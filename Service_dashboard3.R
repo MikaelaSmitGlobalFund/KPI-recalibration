@@ -161,7 +161,6 @@ df_hiv <- df_hiv2_wide %>%
     PWID_cov, 
     MSM_PrEP, MSM_PrEP_LB, MSM_PrEP_UB,
     FSW_PrEP, FSW_PrEP_LB, FSW_PrEP_UB,
-    OST_n, OST_n_LB, OST_n_UB,
     VMMC_n, VMMC_n_LB, VMMC_n_UB,
     PLHIV, PMTCT_need
   )
@@ -191,11 +190,7 @@ df_hiv <- df_hiv %>%
     MSM_cov_UB = ifelse(MSM_pop != 0, MSM_reached_UB / MSM_pop, 0),
     PWID_cov_LB = ifelse(PWID_pop != 0, PWID_reached_LB / PWID_pop, 0),
     PWID_cov_UB = ifelse(PWID_pop != 0, PWID_reached_UB / PWID_pop, 0),
-    
-    # Calculate OST coverage from PWID_pop
-    OST_cov = ifelse(PWID_pop != 0, OST_n / PWID_pop, 0),
-    OST_cov_LB = ifelse(PWID_pop != 0, OST_n_LB / PWID_pop, 0),
-    OST_cov_UB = ifelse(PWID_pop != 0, OST_n_UB / PWID_pop, 0)
+
   )
 
 
@@ -419,7 +414,6 @@ df_ct_projections = df_ct_projections %>%
     grepl("MSM_cov", Name)                ~ "% of men who have sex with men reached with HIV prevention programs [KP-1a]",
     grepl("PWID_cov", Name)               ~ "% of people who inject drugs reached with HIV prevention programs [KP-1d]",
     grepl("VMMC", Name)                   ~ "# of medical male circumcisions [YP-6 ]",
-    grepl("OST_cov", Name)                ~ "% of people receiving Opioid Substitution Therapy [KP-8 ]",
     grepl("MSM_Pr", Name)                 ~ "# of men who have sex with men using pre-explosure prophylaxis [KP-6a ]",
     grepl("FSW_Pr", Name)                 ~ "# of female sex workers using pre-exposure prophylaxis [KP-6c ]",
     # grepl("AGYW_Pr", Name)                 ~ "# of adolescent girls or young women using pre-exposure prophylaxis [YP-4 ]",
@@ -447,22 +441,34 @@ df_ct_projections = df_ct_projections %>% relocate(Category, .before = Name)
 
 # Take sum of three years or last year
 df_processed <- df_ct_projections %>%
-  # Group by Indicator and other relevant columns (except Year and Value)
-  group_by(ISO3, Name, Group, Component, DataType, Indicator) %>%
-  # Sum values for indicators starting with #
+  # Remove rows with NA in Indicator
+  filter(!is.na(Indicator)) %>%
+  # Create a helper column to identify numeric years
+  mutate(NumericYear = as.numeric(as.character(Year))) %>%
+  # Group by all columns except Year and Value
+  group_by(ISO3, Category, Name, Group, Component, DataType, Indicator) %>%
+  # For # indicators, sum all values except ART-related variables
   mutate(
-    Value = if_else(grepl("^#", Indicator), sum(Value, na.rm = TRUE), Value)
+    Value = if_else(
+      grepl("^#", Indicator) & !grepl("ART", Name),
+      sum(Value, na.rm = TRUE),
+      Value
+    )
   ) %>%
-  # For indicators starting with %, take the value from the last year (end_year)
-  group_by(ISO3, Name, Group, Component, DataType, Indicator) %>%
-  slice(if (any(grepl("^%", Indicator))) {
-    # For % indicators, keep only the row with Year == end_year
-    which(Year == end_year)
+  # For ART variables, keep only the last numeric year's value
+  filter(!(grepl("ART", Name) & !is.na(NumericYear) & NumericYear != max(NumericYear, na.rm = TRUE))) %>%
+  # For % indicators, keep only the last numeric year's value
+  filter(!(grepl("^%", Indicator) & !is.na(NumericYear) & NumericYear != end_year)) %>%
+  # For ART variables, select the row with the maximum numeric year
+  slice(if (any(grepl("ART", Name))) {
+    which.max(NumericYear)
   } else {
-    1:n()
+    1
   }) %>%
   # Set Year to "GC8" for indicators starting with # or %
   mutate(Year = if_else(grepl("^#", Indicator) | grepl("^%", Indicator), "GC8", as.character(Year))) %>%
+  # Remove the helper column
+  select(-NumericYear) %>%
   ungroup()
 
 
@@ -471,6 +477,9 @@ df_processed <- df_ct_projections %>%
 df_processed = df_processed %>%
   mutate(Value =  ifelse(Value>100 & grepl("%",df_processed$Indicator ) , 100, Value)) # Add year
 
+# remove columns we do not need
+df_processed <- df_processed %>%
+  select(-Group, -Category)
 
 # Save output array
 if (computer==1) {
