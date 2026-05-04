@@ -288,9 +288,9 @@ df_tb <- df_tb2_wide %>%
     Notified_n_UB = notified_UB,
     
     # MDR Tx
-    mdr_Tx = mdrTx,
-    mdr_Tx_LB = mdrTx_LB,
-    mdr_Tx_UB = mdrTx_UB,
+    mdr_Tx_n = mdrTx,
+    mdr_Tx_n_LB = mdrTx_LB,
+    mdr_Tx_n_UB = mdrTx_UB,
 
     # TB ART
     tb_art_n = tbart,
@@ -316,7 +316,7 @@ df_tb <- df_tb2_wide %>%
   select(
     ISO3, Year, Scenario,
     Notified_n, Notified_n_LB, Notified_n_UB,
-    mdr_Tx, mdr_Tx_LB, mdr_Tx_UB,
+    mdr_Tx_n, mdr_Tx_n_LB, mdr_Tx_n_UB,
     tb_art_n, tb_art_n_LB, tb_art_n_UB,
     mdr_notified_n, mdr_notified_n_LB, mdr_notified_n_UB,
     tb_art_n, tb_art_n_LB, tb_art_n_UB,
@@ -332,9 +332,9 @@ df_tb = df_tb %>%
     tb_art_p_UB = tb_art_n_UB / HIVpop,
     
     # Calculate mdr_Tx_p and its bounds
-    mdr_Tx_p = mdr_Tx / mdr_notified_n,
-    mdr_Tx_p_LB = mdr_Tx_LB / mdr_notified_n,
-    mdr_Tx_p_UB = mdr_Tx_UB / mdr_notified_n,
+    mdr_Tx_p = mdr_Tx_n / mdr_notified_n,
+    mdr_Tx_p_LB = mdr_Tx_n_LB / mdr_notified_n,
+    mdr_Tx_p_UB = mdr_Tx_n_UB / mdr_notified_n,
     
     # Calculate Notified_p and its bounds
     Notified_p = Notified_n / NewCases,
@@ -413,20 +413,20 @@ df_ct_projections = df_ct_projections %>%
     grepl("FSW_cov", Name)                ~ "% of female sex workers reached with HIV prevention programs [KP-1c]",
     grepl("MSM_cov", Name)                ~ "% of men who have sex with men reached with HIV prevention programs [KP-1a]",
     grepl("PWID_cov", Name)               ~ "% of people who inject drugs reached with HIV prevention programs [KP-1d]",
-    grepl("VMMC", Name)                   ~ "# of medical male circumcisions [YP-6 ]",
+    #grepl("VMMC", Name)                   ~ "# of medical male circumcisions [YP-6 ]",
     grepl("MSM_Pr", Name)                 ~ "# of men who have sex with men using pre-explosure prophylaxis [KP-6a ]",
     grepl("FSW_Pr", Name)                 ~ "# of female sex workers using pre-exposure prophylaxis [KP-6c ]",
     # grepl("AGYW_Pr", Name)                 ~ "# of adolescent girls or young women using pre-exposure prophylaxis [YP-4 ]",
     
     grepl("Notified_n", Name)             ~ "# of patients with all forms of TB notified (only new and relapse) [TBDT-1]",
     grepl("Notified_p", Name)             ~ "% of estimated new TB cases notified - TB treatment coverage [TB-O5]",
-    grepl("mdr_Tx_p", Name)               ~ "% of people with confirmed RR-TB and/or MDR-TB that began second-line treatment [DRTB-3]",
-    grepl("mdr_Tx_n", Name)               ~ "# of people with confirmed RR-TB and/or MDR-TB that began second-line treatment [DRTB-3]",
+    grepl("mdr_Tx_p", Name)               ~ "% of people with confirmed DR-TB that began second-line treatment [DRTB-3]",
+    grepl("mdr_Tx_n", Name)               ~ "# of people with confirmed DR-TB that began second-line treatment [DRTB-3 * DRTB-2]",
     grepl("tb_art_p", Name)               ~ "% of HIV-positive new and relapse TB patients on ART during TB treatment [TB/HIV-6]",
     grepl("tb_art_n", Name)               ~ "# of HIV-positive new and relapse TB patients on ART during TB treatment [TB/HIV-6]",
     
     
-    grepl("nets_distributed", Name)       ~ "# of LLINs distributed through mass campaign and continuous distribution [VC-1 + VC-3]", 
+    grepl("nets_distributed", Name)       ~ "# of LLINs distributed through mass campaign and continuous distribution [VC-1.1]", 
     grepl("smc_targeted_cov", Name)       ~ "% of children who received the full number of courses of SMC per transmission season [SPI-2.1]", 
     # grepl("irs", Name)                    ~ "# households sprayed with Indoor residual spraying"
     grepl("itn_access_p", Name)           ~ "% of population with access to an ITN [Malaria O-2]",
