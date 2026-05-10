@@ -147,7 +147,6 @@ df_hiv <- df_hiv2_wide %>%
     VMMC_n_UB = vmmc_UB,
     # Population denominators
     PLHIV = plhiv,
-    PMTCT_need = pmtctneed
   ) %>%
   select(
     ISO3, Year, Scenario,
@@ -162,7 +161,7 @@ df_hiv <- df_hiv2_wide %>%
     MSM_PrEP, MSM_PrEP_LB, MSM_PrEP_UB,
     FSW_PrEP, FSW_PrEP_LB, FSW_PrEP_UB,
     VMMC_n, VMMC_n_LB, VMMC_n_UB,
-    PLHIV, PMTCT_need
+    PLHIV, pmtctneed
   )
 
 
@@ -174,9 +173,9 @@ df_hiv <- df_hiv %>%
     ART_cov_UB = ifelse(PLHIV != 0, ART_total_UB / PLHIV, 0),
     
     # PMTCT
-    PMTCT_cov    = ifelse(PMTCT_need != 0, PMTCT_num / PMTCT_need, 0),
-    PMTCT_cov_LB = ifelse(PMTCT_need != 0, PMTCT_num_LB / PMTCT_need, 0),
-    PMTCT_cov_UB = ifelse(PMTCT_need != 0, PMTCT_num_UB / PMTCT_need, 0),
+    PMTCT_cov    = ifelse(pmtctneed != 0, PMTCT_num / pmtctneed, 0),
+    PMTCT_cov_LB = ifelse(pmtctneed != 0, PMTCT_num_LB / pmtctneed, 0),
+    PMTCT_cov_UB = ifelse(pmtctneed != 0, PMTCT_num_UB / pmtctneed, 0),
     
     # KP pop
     MSM_pop = ifelse(MSM_cov != 0, MSM_reached / MSM_cov, 0),
@@ -351,7 +350,6 @@ df_tb <- df_tb %>%
   )
 
 
-
 ####################
 ## Prepare output ##
 ####################
@@ -359,7 +357,7 @@ df_tb <- df_tb %>%
 # Subset the data for TA for that year 
 df_hiv     = df_hiv %>% dplyr::filter(Scenario %in% scenario_output)
 df_hiv     = subset(df_hiv, select = -c(Scenario))
-df_hiv     = subset(df_hiv, select = -c(PLHIV, PMTCT_need, FSW_pop, MSM_pop, PWID_pop))
+#df_hiv     = subset(df_hiv, select = -c(PLHIV, pmtctneed, FSW_pop, MSM_pop, PWID_pop))
 hiv_variables    = names(df_hiv)
 hiv_variables    = hiv_variables[-c(1,2)]
 df_hiv           = df_hiv %>% pivot_longer(cols = hiv_variables,names_to = "Name", values_to = "Value")
@@ -368,7 +366,7 @@ df_hiv$Component = "HIV"
 
 df_malaria     = df_malaria %>% dplyr::filter(Scenario %in% scenario_output)
 df_malaria     = subset(df_malaria, select = -c(Scenario))
-df_malaria     = subset(df_malaria, select = -c(par, smc_par))
+#df_malaria     = subset(df_malaria, select = -c(par, smc_par))
 malaria_variables    = names(df_malaria)
 malaria_variables    = malaria_variables[-c(1,2)]
 df_malaria           = df_malaria %>% pivot_longer(cols = malaria_variables, names_to = "Name", values_to = "Value")
@@ -377,7 +375,7 @@ df_malaria$Component = "Malaria"
 
 df_tb     = df_tb %>% dplyr::filter(Scenario %in% scenario_output)
 df_tb     = subset(df_tb, select = -c(Scenario))
-df_tb     = subset(df_tb, select = -c(HIVpop, NewCases))
+#df_tb     = subset(df_tb, select = -c(HIVpop, NewCases))
 tb_variables    = names(df_tb)
 tb_variables    = tb_variables[-c(1,2)]
 df_tb           = df_tb %>% pivot_longer(cols = tb_variables, names_to = "Name", values_to = "Value")
@@ -429,8 +427,8 @@ df_ct_projections = df_ct_projections %>%
     grepl("nets_distributed", Name)       ~ "# of LLINs distributed through mass campaign and continuous distribution [VC-1.1]", 
     grepl("smc_targeted_cov", Name)       ~ "% of children who received the full number of courses of SMC per transmission season [SPI-2.1]", 
     # grepl("irs", Name)                    ~ "# households sprayed with Indoor residual spraying"
-    grepl("itn_access_p", Name)           ~ "% of population with access to an ITN [Malaria O-2]",
-    # grepl("itn_use_p", Name)                ~ "% of population that slept under an insecticide-treated net [Malaria O-1a]",
+    # grepl("itn_access_p", Name)           ~ "% of population with access to an ITN [Malaria O-2]",
+    grepl("itn_use_p", Name)                ~ "% of population that slept under an insecticide-treated net [Malaria O-1a]",
     # grepl("vector", Name)               ~ "% of population with access to vector control coverage"
   ))
 
@@ -493,4 +491,47 @@ short_names = subset(short_names, select = c(Name, Indicator))
 write.csv(short_names, paste0(output_path, "/", "variable_mapping", date, ".csv"), row.names = FALSE)
 
 
+# For Erica
+# Take sum of three years or last year
+df_processed_erica <- df_ct_projections %>%
+  # Create a helper column to identify numeric years
+  mutate(NumericYear = as.numeric(as.character(Year))) %>%
+  # Group by all columns except Year and Value
+  group_by(ISO3, Category, Name, Group, Component, DataType, Indicator) %>%
+  # For # indicators, sum all values except ART-related variables
+  mutate(
+    Value = if_else(
+      grepl("^#", Indicator) & !grepl("ART", Name),
+      sum(Value, na.rm = TRUE),
+      Value
+    )
+  ) %>%
+  # For ART variables, keep only the last numeric year's value
+  filter(!(grepl("ART", Name) & !is.na(NumericYear) & NumericYear != max(NumericYear, na.rm = TRUE))) %>%
+  # For % indicators, keep only the last numeric year's value
+  filter(!(grepl("^%", Indicator) & !is.na(NumericYear) & NumericYear != end_year)) %>%
+  # For ART variables, select the row with the maximum numeric year
+  slice(if (any(grepl("ART", Name))) {
+    which.max(NumericYear)
+  } else {
+    1
+  }) %>%
+  # Set Year to "GC8" for indicators starting with # or %
+  mutate(Year = if_else(grepl("^#", Indicator) | grepl("^%", Indicator), "GC8", as.character(Year))) %>%
+  # Remove the helper column
+  select(-NumericYear) %>%
+  ungroup()
+
+# Cap at 100%
+df_processed_erica = df_processed_erica %>%
+  mutate(Value =  ifelse(Value>100 & grepl("%",df_processed$Indicator ) , 100, Value)) # Add year
+
+# remove columns we do not need
+df_processed_erica <- df_processed_erica %>%
+  select(-Group, -Category)
+
+# Save output array
+if (computer==1) {
+  write.csv(df_processed_erica, paste0(output_path, "/", "dashboard_capped_with_denominator", date, "fv.csv"), row.names = FALSE)
+}
 
