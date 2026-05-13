@@ -472,8 +472,14 @@ df_processed <- df_ct_projections %>%
 
 
 # Cap at 100%
-df_processed = df_processed %>%
-  mutate(Value =  ifelse(Value>100 & grepl("%",df_processed$Indicator ) , 100, Value)) # Add year
+df_processed <- df_processed %>%
+  mutate(
+    Value = ifelse(
+      Value > 1 & !is.na(Indicator) & startsWith(Indicator, "%"),
+      1,
+      Value
+    )
+  )
 
 # remove columns we do not need
 df_processed <- df_processed %>%
@@ -523,8 +529,14 @@ df_processed_erica <- df_ct_projections %>%
   ungroup()
 
 # Cap at 100%
-df_processed_erica = df_processed_erica %>%
-  mutate(Value =  ifelse(Value>100 & grepl("%",df_processed$Indicator ) , 100, Value)) # Add year
+df_processed_erica <- df_processed_erica %>%
+  mutate(
+    Value = ifelse(
+      Value > 1 & !is.na(Indicator) & startsWith(Indicator, "%"),
+      1,
+      Value
+    )
+  )
 
 # remove columns we do not need
 df_processed_erica <- df_processed_erica %>%
