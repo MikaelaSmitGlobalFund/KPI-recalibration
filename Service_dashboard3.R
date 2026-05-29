@@ -231,9 +231,9 @@ df_malaria <- df_mal2_wide %>%
     smc_par = partargetedsmc,  # Assuming 'smc' is the new name for 'smc_par'
 
     # ITN use
-    itn_use_p = llinsuse,
-    itn_use_p_LB = llinsuse_LB,
-    itn_use_p_UB = llinsuse_UB,
+    itn_use_n = llinsuse,
+    itn_use_n_LB = llinsuse_LB,
+    itn_use_n_UB = llinsuse_UB,
     # Population
     par = par
   ) %>%
@@ -241,7 +241,7 @@ df_malaria <- df_mal2_wide %>%
     ISO3, Year, Scenario,
     nets_distributed, nets_distributed_LB, nets_distributed_UB,
     smc_targeted_cov, smc_targeted_cov_LB, smc_targeted_cov_UB,
-    itn_use_p, itn_use_p_LB, itn_use_p_UB,
+    itn_use_n, itn_use_n_LB, itn_use_n_UB,
     par, smc_par,
   )
 
@@ -250,7 +250,12 @@ df_malaria <- df_malaria %>%
   mutate(
     smc_n = smc_targeted_cov * smc_par,
     smc_n_LB = smc_targeted_cov_LB * smc_par,
-    smc_n_UB = smc_targeted_cov_UB * smc_par
+    smc_n_UB = smc_targeted_cov_UB * smc_par,
+    
+    itn_use_p = itn_use_n / par,
+    itn_use_p_LB = itn_use_n_LB / par,
+    itn_use_p_UB = itn_use_n_UB / par
+    
   )
 
 df_malaria <- df_malaria %>%
