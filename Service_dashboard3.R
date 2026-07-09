@@ -507,31 +507,35 @@ write.csv(short_names, paste0(output_path, "/", "variable_mapping", date, ".csv"
 df_processed_erica <- df_ct_projections %>%
   # Create a helper column to identify numeric years
   mutate(NumericYear = as.numeric(as.character(Year))) %>%
+  # Helper flag: denominators (NA Indicator) and PMTCT_num should behave like % indicators
+  # i.e. keep only the end_year value, never summed across years
+  mutate(KeepEndYearOnly = is.na(Indicator) | grepl("PMTCT", Name)) %>%
   # Group by all columns except Year and Value
   group_by(ISO3, Category, Name, Group, Component, DataType, Indicator) %>%
-  # For # indicators, sum all values except ART-related variables
+  # For # indicators, sum all values except ART-related variables (and denominators/PMTCT, which are NA-safe here)
   mutate(
     Value = if_else(
-      grepl("^#", Indicator) & !grepl("ART", Name),
+      !KeepEndYearOnly & grepl("^#", Indicator) & !grepl("ART", Name),
       sum(Value, na.rm = TRUE),
       Value
     )
   ) %>%
   # For ART variables, keep only the last numeric year's value
   filter(!(grepl("ART", Name) & !is.na(NumericYear) & NumericYear != max(NumericYear, na.rm = TRUE))) %>%
-  # For % indicators, keep only the last numeric year's value
-  filter(!(grepl("^%", Indicator) & !is.na(NumericYear) & NumericYear != end_year)) %>%
+  # For % indicators AND denominators/PMTCT, keep only the end_year value
+  filter(!((grepl("^%", Indicator) | KeepEndYearOnly) & !is.na(NumericYear) & NumericYear != end_year)) %>%
   # For ART variables, select the row with the maximum numeric year
   slice(if (any(grepl("ART", Name))) {
     which.max(NumericYear)
   } else {
     1
   }) %>%
-  # Set Year to "GC8" for indicators starting with # or %
-  mutate(Year = if_else(grepl("^#", Indicator) | grepl("^%", Indicator), "GC8", as.character(Year))) %>%
-  # Remove the helper column
-  select(-NumericYear) %>%
+  # Set Year to "GC8" for indicators starting with # or % (denominators/PMTCT keep their real year)
+  mutate(Year = if_else((grepl("^#", Indicator) | grepl("^%", Indicator)) & !KeepEndYearOnly, "GC8", as.character(Year))) %>%
+  # Remove the helper columns
+  select(-NumericYear, -KeepEndYearOnly) %>%
   ungroup()
+
 
 # Cap at 100%
 df_processed_erica <- df_processed_erica %>%
@@ -543,7 +547,6 @@ df_processed_erica <- df_processed_erica %>%
     )
   )
 
-# remove columns we do not need
 df_processed_erica <- df_processed_erica %>%
   select(-Group, -Category)
 
